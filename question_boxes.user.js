@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         WOL – Make Questions into Grey Boxes (No Dividers)
 // @namespace    https://github.com/javalan/userscripts
-// @version      4.1
+// @version      4.2
 // @description  Replace disabled text boxes by turning the PRECEDING question into a grey box
-// @author       ZEBRO
+// @author       ZEBROS
 // @match        https://wol.jw.org/*
 // @run-at       document-idle
 // @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/question_boxes.user.js

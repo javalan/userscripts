@@ -6,8 +6,8 @@
 // @author       ZEBRO
 // @match        https://wol.jw.org/*
 // @run-at       document-idle
-// @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/question_boxes.js
-// @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/question_boxes.js
+// @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/question_boxes.user.js
+// @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/question_boxes.user.js
 // @grant        none
 // ==/UserScript==
 

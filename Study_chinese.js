@@ -30,7 +30,7 @@
 (function() {
     'use strict';
 
-    const CURRENT_VERSION = "1.1";
+    const CURRENT_VERSION = "1.2";
     const VERSION_URL = "https://cdn.jsdelivr.net/gh/javalan/userscripts@master/version.json";
 
     function compareVersions(local, remote) {
@@ -120,7 +120,7 @@
         } catch (e) {
             console.warn("Version fetch failed, showing banner anyway:", e);
             versionData = {
-                version: "1.1",
+                version: "1.2",
                 install_video: "https://d1oegedfje2ody.cloudfront.net/video5_en.mp4",
                 release_notes: "Updated"
             };

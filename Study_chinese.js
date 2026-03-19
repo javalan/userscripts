@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WOL Unified (Pinyin · Highlighter · Sync · Question Boxes)
 // @namespace    wol-unified
-// @version      1.0
+// @version      1.1
 // @description  Study/pinyin mode, 3-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
@@ -25,8 +25,114 @@
     });
 })();
 
-(function () {
+(async function () {
     'use strict';
+
+    //***********************
+    //* Version Check Block *
+    //***********************
+    const CURRENT_VERSION = "1.0"; // current script version
+    const VERSION_URL = "https://raw.githubusercontent.com/javalan/userscripts/main/version.json"; // JSON with latest version info
+    const DOWNLOAD_URL = "https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js"; // actual script download
+
+    if (!window.__wol_version_seen) window.__wol_version_seen = {};
+
+    function compareVersions(local, remote) {
+        const l = local.split('.').map(Number);
+        const r = remote.split('.').map(Number);
+        for (let i = 0; i < Math.max(l.length, r.length); i++) {
+            const li = l[i] || 0;
+            const ri = r[i] || 0;
+            if (li < ri) return -1;
+            if (li > ri) return 1;
+        }
+        return 0;
+    }
+
+    function showUpdateBanner(versionData) {
+        if (window.__wol_version_seen[versionData.version]) return;
+        window.__wol_version_seen[versionData.version] = true;
+
+        // Create banner container
+        const banner = document.createElement('div');
+        banner.style.position = 'fixed';
+        banner.style.top = '0';
+        banner.style.left = '0';
+        banner.style.width = '100%';
+        banner.style.backgroundColor = '#fffae6';
+        banner.style.borderBottom = '2px solid #f5c518';
+        banner.style.padding = '12px 10px';
+        banner.style.zIndex = '999999';
+        banner.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)';
+        banner.style.display = 'flex';
+        banner.style.flexDirection = 'column';
+        banner.style.alignItems = 'center';
+        banner.style.fontFamily = 'sans-serif';
+        banner.style.fontSize = '14px';
+
+        // Message
+        const msg = document.createElement('div');
+        msg.textContent = `🚨 New version available: ${versionData.version} — ${versionData.release_notes || 'No details'}`;
+        msg.style.marginBottom = '8px';
+        msg.style.textAlign = 'center';
+        banner.appendChild(msg);
+
+        // Buttons container
+        const btnContainer = document.createElement('div');
+        btnContainer.style.display = 'flex';
+        btnContainer.style.gap = '8px';
+
+        // Watch Video Button
+        const videoBtn = document.createElement('button');
+        videoBtn.textContent = 'Watch Video';
+        videoBtn.style.padding = '6px 12px';
+        videoBtn.style.backgroundColor = '#007bff';
+        videoBtn.style.color = 'white';
+        videoBtn.style.border = 'none';
+        videoBtn.style.borderRadius = '4px';
+        videoBtn.style.cursor = 'pointer';
+        videoBtn.onclick = () => window.open(versionData.install_video, '_blank');
+
+        // Download Script Button
+        const downloadBtn = document.createElement('button');
+        downloadBtn.textContent = 'Download Script';
+        downloadBtn.style.padding = '6px 12px';
+        downloadBtn.style.backgroundColor = '#28a745';
+        downloadBtn.style.color = 'white';
+        downloadBtn.style.border = 'none';
+        downloadBtn.style.borderRadius = '4px';
+        downloadBtn.style.cursor = 'pointer';
+        downloadBtn.onclick = () => window.open(DOWNLOAD_URL, '_blank');
+
+        // Close Button (small X)
+        const closeBtn = document.createElement('span');
+        closeBtn.textContent = '✕';
+        closeBtn.style.position = 'absolute';
+        closeBtn.style.top = '4px';
+        closeBtn.style.right = '8px';
+        closeBtn.style.cursor = 'pointer';
+        closeBtn.style.fontWeight = 'bold';
+        closeBtn.onclick = () => banner.remove();
+
+        btnContainer.appendChild(videoBtn);
+        btnContainer.appendChild(downloadBtn);
+        banner.appendChild(btnContainer);
+        banner.appendChild(closeBtn);
+
+        document.body.appendChild(banner);
+    }
+
+    try {
+        const response = await fetch(VERSION_URL);
+        if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+        const data = await response.json();
+
+        if (compareVersions(CURRENT_VERSION, data.version) < 0) {
+            showUpdateBanner(data);
+        }
+    } catch (e) {
+        console.warn("Version check failed:", e);
+    }
 
     // ─────────────────────────────────────────────────────────────
     // 1. CONSTANTS & SHARED STATE

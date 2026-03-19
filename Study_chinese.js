@@ -11,7 +11,7 @@
 // ==/UserScript==
 
 // ─────────────────────────────────────────────────────────────
-// 0. PRE-HIDE RUBY  (must run before everything else)
+// 0. PRE-HIDE RUBY  (must run before everything else) *
 // ─────────────────────────────────────────────────────────────
 (function preHideRuby() {
     if (localStorage.getItem('wol_app_mode') !== 'study') return;

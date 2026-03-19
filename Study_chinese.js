@@ -33,8 +33,6 @@
     const CURRENT_VERSION = "1.1";
     const VERSION_URL = "https://cdn.jsdelivr.net/gh/javalan/userscripts@master/version.json";
 
-    if (!window.__wol_version_seen) window.__wol_version_seen = {};
-
     function compareVersions(local, remote) {
         const l = local.split('.').map(Number);
         const r = remote.split('.').map(Number);
@@ -48,10 +46,9 @@
     }
 
     function showUpdateBanner(versionData) {
-        if (window.__wol_version_seen[versionData.version]) return;
-        window.__wol_version_seen[versionData.version] = true;
+        // Check if user already cancelled
+        if (localStorage.getItem('wol_update_cancel_' + versionData.version)) return;
 
-        // Banner container
         const banner = document.createElement('div');
         banner.style.position = 'fixed';
         banner.style.top = '0';
@@ -69,22 +66,19 @@
         banner.style.fontSize = '14px';
         banner.style.overflow = 'visible';
 
-        // Message
         const msg = document.createElement('div');
         msg.textContent = `🚨 New version available: ${versionData.version} — ${versionData.release_notes || 'No details'}`;
         msg.style.marginBottom = '8px';
         msg.style.textAlign = 'center';
         banner.appendChild(msg);
 
-        // Buttons container
         const btnContainer = document.createElement('div');
         btnContainer.style.display = 'flex';
         btnContainer.style.gap = '8px';
-        btnContainer.style.position = 'relative';
-        btnContainer.style.width = '100%';
         btnContainer.style.justifyContent = 'center';
+        btnContainer.style.width = '100%';
 
-        // Watch Video Button
+        // Watch Video button
         const videoBtn = document.createElement('button');
         videoBtn.textContent = 'Watch Video Instructions';
         videoBtn.style.padding = '6px 12px';
@@ -95,7 +89,7 @@
         videoBtn.style.cursor = 'pointer';
         videoBtn.onclick = () => window.open(versionData.install_video, '_blank');
 
-        // Cancel Button
+        // Cancel button
         const cancelBtn = document.createElement('button');
         cancelBtn.textContent = 'Cancel';
         cancelBtn.style.padding = '6px 12px';
@@ -104,7 +98,10 @@
         cancelBtn.style.border = 'none';
         cancelBtn.style.borderRadius = '4px';
         cancelBtn.style.cursor = 'pointer';
-        cancelBtn.onclick = () => banner.remove();
+        cancelBtn.onclick = () => {
+            localStorage.setItem('wol_update_cancel_' + versionData.version, 'true');
+            banner.remove();
+        };
 
         btnContainer.appendChild(videoBtn);
         btnContainer.appendChild(cancelBtn);
@@ -114,7 +111,6 @@
         else window.addEventListener('load', () => document.body.appendChild(banner));
     }
 
-    // Fetch version info (with fallback)
     window.addEventListener('load', async () => {
         let versionData = null;
         try {
@@ -122,7 +118,7 @@
             const data = await response.json();
             versionData = data;
         } catch (e) {
-            console.warn("Version check fetch failed, showing banner anyway:", e);
+            console.warn("Version fetch failed, showing banner anyway:", e);
             versionData = {
                 version: "1.1",
                 install_video: "https://d1oegedfje2ody.cloudfront.net/video5_en.mp4",

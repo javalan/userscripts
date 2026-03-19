@@ -31,7 +31,7 @@
     //***********************
     //* Version Check Block *
     //***********************
-    const CURRENT_VERSION = "1.0"; // current script version
+    const CURRENT_VERSION = "1.1"; // current script version
     const VERSION_URL = "https://raw.githubusercontent.com/javalan/userscripts/main/version.json"; // JSON with latest version info
     const DOWNLOAD_URL = "https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js"; // actual script download
 

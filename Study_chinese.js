@@ -5,6 +5,8 @@
 // @description  Study/pinyin mode, 3-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
+// @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
+// @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
 // @grant        unsafeWindow
 // ==/UserScript==
 
@@ -25,15 +27,11 @@
     });
 })();
 
-(async function () {
+(function() {
     'use strict';
 
-    //***********************
-    //* Version Check Block *
-    //***********************
-    const CURRENT_VERSION = "1.1"; // current script version
-    const VERSION_URL = "https://raw.githubusercontent.com/javalan/userscripts/main/version.json"; // JSON with latest version info
-    const DOWNLOAD_URL = "https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js"; // actual script download
+    const CURRENT_VERSION = "1.1";
+    const VERSION_URL = "https://cdn.jsdelivr.net/gh/javalan/userscripts@master/version.json";
 
     if (!window.__wol_version_seen) window.__wol_version_seen = {};
 
@@ -53,7 +51,7 @@
         if (window.__wol_version_seen[versionData.version]) return;
         window.__wol_version_seen[versionData.version] = true;
 
-        // Create banner container
+        // Banner container
         const banner = document.createElement('div');
         banner.style.position = 'fixed';
         banner.style.top = '0';
@@ -69,6 +67,7 @@
         banner.style.alignItems = 'center';
         banner.style.fontFamily = 'sans-serif';
         banner.style.fontSize = '14px';
+        banner.style.overflow = 'visible';
 
         // Message
         const msg = document.createElement('div');
@@ -81,10 +80,13 @@
         const btnContainer = document.createElement('div');
         btnContainer.style.display = 'flex';
         btnContainer.style.gap = '8px';
+        btnContainer.style.position = 'relative';
+        btnContainer.style.width = '100%';
+        btnContainer.style.justifyContent = 'center';
 
         // Watch Video Button
         const videoBtn = document.createElement('button');
-        videoBtn.textContent = 'Watch Video';
+        videoBtn.textContent = 'Watch Video Instructions';
         videoBtn.style.padding = '6px 12px';
         videoBtn.style.backgroundColor = '#007bff';
         videoBtn.style.color = 'white';
@@ -93,46 +95,45 @@
         videoBtn.style.cursor = 'pointer';
         videoBtn.onclick = () => window.open(versionData.install_video, '_blank');
 
-        // Download Script Button
-        const downloadBtn = document.createElement('button');
-        downloadBtn.textContent = 'Download Script';
-        downloadBtn.style.padding = '6px 12px';
-        downloadBtn.style.backgroundColor = '#28a745';
-        downloadBtn.style.color = 'white';
-        downloadBtn.style.border = 'none';
-        downloadBtn.style.borderRadius = '4px';
-        downloadBtn.style.cursor = 'pointer';
-        downloadBtn.onclick = () => window.open(DOWNLOAD_URL, '_blank');
-
-        // Close Button (small X)
-        const closeBtn = document.createElement('span');
-        closeBtn.textContent = '✕';
-        closeBtn.style.position = 'absolute';
-        closeBtn.style.top = '4px';
-        closeBtn.style.right = '8px';
-        closeBtn.style.cursor = 'pointer';
-        closeBtn.style.fontWeight = 'bold';
-        closeBtn.onclick = () => banner.remove();
+        // Cancel Button
+        const cancelBtn = document.createElement('button');
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.style.padding = '6px 12px';
+        cancelBtn.style.backgroundColor = '#ccc';
+        cancelBtn.style.color = 'black';
+        cancelBtn.style.border = 'none';
+        cancelBtn.style.borderRadius = '4px';
+        cancelBtn.style.cursor = 'pointer';
+        cancelBtn.onclick = () => banner.remove();
 
         btnContainer.appendChild(videoBtn);
-        btnContainer.appendChild(downloadBtn);
+        btnContainer.appendChild(cancelBtn);
         banner.appendChild(btnContainer);
-        banner.appendChild(closeBtn);
 
-        document.body.appendChild(banner);
+        if (document.body) document.body.appendChild(banner);
+        else window.addEventListener('load', () => document.body.appendChild(banner));
     }
 
-    try {
-        const response = await fetch(VERSION_URL);
-        if (!response.ok) throw new Error(`HTTP error ${response.status}`);
-        const data = await response.json();
-
-        if (compareVersions(CURRENT_VERSION, data.version) < 0) {
-            showUpdateBanner(data);
+    // Fetch version info (with fallback)
+    window.addEventListener('load', async () => {
+        let versionData = null;
+        try {
+            const response = await fetch(VERSION_URL);
+            const data = await response.json();
+            versionData = data;
+        } catch (e) {
+            console.warn("Version check fetch failed, showing banner anyway:", e);
+            versionData = {
+                version: "1.1",
+                install_video: "https://d1oegedfje2ody.cloudfront.net/video5_en.mp4",
+                release_notes: "Updated"
+            };
         }
-    } catch (e) {
-        console.warn("Version check failed:", e);
-    }
+
+        if (compareVersions(CURRENT_VERSION, versionData.version) < 0) {
+            showUpdateBanner(versionData);
+        }
+    });
 
     // ─────────────────────────────────────────────────────────────
     // 1. CONSTANTS & SHARED STATE

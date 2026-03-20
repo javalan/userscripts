@@ -7,8 +7,9 @@
 // @run-at       document-end
 // @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
 // @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
-// @connect      cdn.jsdelivr.net
 // @grant        unsafeWindow
+// @grant        GM_xmlhttpRequest
+// @connect      cdn.jsdelivr.net
 // ==/UserScript==
 
 // ─────────────────────────────────────────────────────────────
@@ -153,25 +154,22 @@
         });
     }
 
-    window.addEventListener('load', async () => {
-        let versionData = null;
-        try {
-            const response = await fetch(VERSION_URL);
-            const data = await response.json();
-            versionData = data;
-            console.log('Version check:', data);
-        } catch (e) {
-            console.warn("Version fetch failed, showing toast anyway:", e);
-            versionData = {
-                version: "1.6",
-                install_video: "https://d1oegedfje2ody.cloudfront.net/video5_en.mp4",
-                release_notes: "Updated"
-            };
-        }
-
-        if (compareVersions(CURRENT_VERSION, versionData.version) < 0) {
-            showUpdateToast(versionData);
-        }
+    window.addEventListener('load', () => {
+        GM_xmlhttpRequest({
+            method: 'GET',
+            url: VERSION_URL,
+            onload: (response) => {
+                try {
+                    const data = JSON.parse(response.responseText);
+                    if (compareVersions(CURRENT_VERSION, data.version) < 0) {
+                        showUpdateToast(data);
+                    }
+                } catch(e) {
+                    console.warn('Version parse failed:', e);
+                }
+            },
+            onerror: (e) => console.warn('Version fetch failed:', e)
+        });
     });
 
     // ─────────────────────────────────────────────────────────────

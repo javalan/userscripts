@@ -7,6 +7,7 @@
 // @run-at       document-end
 // @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
 // @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
+// @connect      cdn.jsdelivr.net
 // @grant        unsafeWindow
 // ==/UserScript==
 

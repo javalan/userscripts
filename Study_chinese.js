@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WOL Unified (Pinyin · Highlighter · Sync · Question Boxes)
 // @namespace    wol-unified
-// @version      1.3
+// @version      1.1
 // @description  Study/pinyin mode, 3-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end

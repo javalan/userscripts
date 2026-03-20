@@ -5,8 +5,8 @@
 // @description  Study/pinyin mode, 3-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
-// @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
-// @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
+// @updateURL    https://raw.githubusercontent.com/javalan/userscripts/master/Study_chinese.js
+// @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/master/Study_chinese.js
 // @grant        unsafeWindow
 // ==/UserScript==
 

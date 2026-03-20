@@ -31,7 +31,7 @@
     'use strict';
 
     const CURRENT_VERSION = "1.4";
-    const VERSION_URL = "https://cdn.jsdelivr.net/gh/javalan/userscripts@main/version.json";
+    const VERSION_URL = "https://cdn.jsdelivr.net/gh/javalan/userscripts@HEAD/version.json";
 
     function compareVersions(local, remote) {
         const l = local.split('.').map(Number);

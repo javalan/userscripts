@@ -163,7 +163,7 @@
         } catch (e) {
             console.warn("Version fetch failed, showing toast anyway:", e);
             versionData = {
-                version: "1.2",
+                version: "1.6",
                 install_video: "https://d1oegedfje2ody.cloudfront.net/video5_en.mp4",
                 release_notes: "Updated"
             };

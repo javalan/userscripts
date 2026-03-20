@@ -158,6 +158,7 @@
             const response = await fetch(VERSION_URL);
             const data = await response.json();
             versionData = data;
+            console.log('Version check:', data);
         } catch (e) {
             console.warn("Version fetch failed, showing toast anyway:", e);
             versionData = {

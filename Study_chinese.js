@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WOL Unified (Pinyin · Highlighter · Sync · Question Boxes)
 // @namespace    wol-unified
-// @version      1.2
+// @version      1.1
 // @description  Study/pinyin mode, 3-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
@@ -11,7 +11,7 @@
 // ==/UserScript==
 
 // ─────────────────────────────────────────────────────────────
-// 0. PRE-HIDE RUBY  (must run before everything else) *
+// 0. PRE-HIDE RUBY  (must run before everything else)
 // ─────────────────────────────────────────────────────────────
 (function preHideRuby() {
     if (localStorage.getItem('wol_app_mode') !== 'study') return;
@@ -30,8 +30,8 @@
 (function() {
     'use strict';
 
-    const CURRENT_VERSION = "1.2";
-    const VERSION_URL = "https://cdn.jsdelivr.net/gh/javalan/userscripts@master/version.json";
+    const CURRENT_VERSION = "1.1";
+    const VERSION_URL = "https://cdn.jsdelivr.net/gh/javalan/userscripts@main/version.json";
 
     function compareVersions(local, remote) {
         const l = local.split('.').map(Number);
@@ -45,70 +45,109 @@
         return 0;
     }
 
-    function showUpdateBanner(versionData) {
-        // Check if user already cancelled
-        if (localStorage.getItem('wol_update_cancel_' + versionData.version)) return;
+    const _lang = (() => {
+        const l = (navigator.language || navigator.userLanguage || '').toLowerCase();
+        if (l.startsWith('ko')) return 'ko';
+        if (l.startsWith('ja')) return 'ja';
+        if (l.startsWith('es')) return 'es';
+        return 'en';
+    })();
 
-        const banner = document.createElement('div');
-        banner.style.position = 'fixed';
-        banner.style.top = '0';
-        banner.style.left = '0';
-        banner.style.width = '100%';
-        banner.style.backgroundColor = '#fffae6';
-        banner.style.borderBottom = '2px solid #f5c518';
-        banner.style.padding = '12px 10px';
-        banner.style.zIndex = '999999';
-        banner.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)';
-        banner.style.display = 'flex';
-        banner.style.flexDirection = 'column';
-        banner.style.alignItems = 'center';
-        banner.style.fontFamily = 'sans-serif';
-        banner.style.fontSize = '14px';
-        banner.style.overflow = 'visible';
+    function showUpdateToast(versionData) {
+        if (localStorage.getItem('study_chinese_update_' + versionData.version)) return;
 
-        const msg = document.createElement('div');
-        msg.textContent = `🚨 New version available: ${versionData.version} — ${versionData.release_notes || 'No details'}`;
-        msg.style.marginBottom = '8px';
-        msg.style.textAlign = 'center';
-        banner.appendChild(msg);
+        const toast = document.createElement('div');
+        toast.style.position = 'fixed';
+        toast.style.bottom = '20px';
+        toast.style.left = '50%';
+        toast.style.transform = 'translateX(-50%) translateY(50px)';
+        toast.style.backgroundColor = '#f2f2f7';
+        toast.style.border = '1px solid #c1c1c1';
+        toast.style.borderRadius = '6px';
+        toast.style.boxShadow = '0 3px 10px rgba(0,0,0,0.15)';
+        toast.style.padding = '16px 18px';
+        toast.style.zIndex = '999999';
+        toast.style.width = '180px'; // compact
+        toast.style.display = 'flex';
+        toast.style.flexDirection = 'column';
+        toast.style.alignItems = 'center';
+        toast.style.gap = '8px';
+        toast.style.fontFamily = 'system-ui, sans-serif';
+        toast.style.fontSize = '14px';
+        toast.style.color = '#1a1a1a';
+        toast.style.transition = 'transform 0.3s ease, opacity 0.3s ease';
+        toast.style.opacity = '0';
 
-        const btnContainer = document.createElement('div');
-        btnContainer.style.display = 'flex';
-        btnContainer.style.gap = '8px';
-        btnContainer.style.justifyContent = 'center';
-        btnContainer.style.width = '100%';
+        // Close button ✕
+        const closeBtn = document.createElement('span');
+        closeBtn.textContent = '✕';
+        closeBtn.style.position = 'absolute';
+        closeBtn.style.top = '4px';
+        closeBtn.style.right = '6px';
+        closeBtn.style.cursor = 'pointer';
+        closeBtn.style.fontWeight = 'bold';
+        closeBtn.style.fontSize = '24px';
+        closeBtn.onclick = () => {
+            toast.remove();
+            localStorage.setItem('study_chinese_update_' + versionData.version, 'true');
+        };
+        toast.appendChild(closeBtn);
 
-        // Watch Video button
+        // Text container
+        const textContainer = document.createElement('div');
+        textContainer.style.textAlign = 'center';
+
+        // Heading (STUDY CHINESE — always English)
+        const heading = document.createElement('div');
+        heading.textContent = 'STUDY CHINESE';
+        heading.style.fontWeight = 'bold';
+        heading.style.fontSize = '16px';
+        heading.style.textTransform = 'uppercase';
+        textContainer.appendChild(heading);
+
+        // Subheading — translated
+        const updateLabels = {
+            en: 'Update available 🔔',
+            ko: '업데이트 가능 🔔',
+            ja: 'アップデートあり 🔔',
+            es: 'Actualización disponible 🔔',
+        };
+        const watchLabels = {
+            en: 'Watch Video',
+            ko: '동영상 보기',
+            ja: '動画を見る',
+            es: 'Ver video',
+        };
+        const subheading = document.createElement('div');
+        subheading.textContent = updateLabels[_lang] || updateLabels.en;
+        subheading.style.fontWeight = 'normal';
+        subheading.style.fontSize = '14px';
+        textContainer.appendChild(subheading);
+
+        toast.appendChild(textContainer);
+
+        // Watch Video Button (single line, slightly taller)
         const videoBtn = document.createElement('button');
-        videoBtn.textContent = 'Watch Video Instructions';
-        videoBtn.style.padding = '6px 12px';
-        videoBtn.style.backgroundColor = '#007bff';
+        videoBtn.textContent = watchLabels[_lang] || watchLabels.en;
+        videoBtn.style.padding = '10px 14px'; // taller for proper button feel
+        videoBtn.style.backgroundColor = '#4a90e2';
         videoBtn.style.color = 'white';
         videoBtn.style.border = 'none';
         videoBtn.style.borderRadius = '4px';
         videoBtn.style.cursor = 'pointer';
+        videoBtn.style.fontWeight = '500';
+        videoBtn.style.fontSize = '14px';
+        videoBtn.style.alignSelf = 'center';
         videoBtn.onclick = () => window.open(versionData.install_video, '_blank');
+        toast.appendChild(videoBtn);
 
-        // Cancel button
-        const cancelBtn = document.createElement('button');
-        cancelBtn.textContent = 'Cancel';
-        cancelBtn.style.padding = '6px 12px';
-        cancelBtn.style.backgroundColor = '#ccc';
-        cancelBtn.style.color = 'black';
-        cancelBtn.style.border = 'none';
-        cancelBtn.style.borderRadius = '4px';
-        cancelBtn.style.cursor = 'pointer';
-        cancelBtn.onclick = () => {
-            localStorage.setItem('wol_update_cancel_' + versionData.version, 'true');
-            banner.remove();
-        };
+        if (document.body) document.body.appendChild(toast);
+        else window.addEventListener('load', () => document.body.appendChild(toast));
 
-        btnContainer.appendChild(videoBtn);
-        btnContainer.appendChild(cancelBtn);
-        banner.appendChild(btnContainer);
-
-        if (document.body) document.body.appendChild(banner);
-        else window.addEventListener('load', () => document.body.appendChild(banner));
+        requestAnimationFrame(() => {
+            toast.style.transform = 'translateX(-50%) translateY(0)';
+            toast.style.opacity = '1';
+        });
     }
 
     window.addEventListener('load', async () => {
@@ -118,7 +157,7 @@
             const data = await response.json();
             versionData = data;
         } catch (e) {
-            console.warn("Version fetch failed, showing banner anyway:", e);
+            console.warn("Version fetch failed, showing toast anyway:", e);
             versionData = {
                 version: "1.2",
                 install_video: "https://d1oegedfje2ody.cloudfront.net/video5_en.mp4",
@@ -127,7 +166,7 @@
         }
 
         if (compareVersions(CURRENT_VERSION, versionData.version) < 0) {
-            showUpdateBanner(versionData);
+            showUpdateToast(versionData);
         }
     });
 
@@ -148,8 +187,36 @@
 
     const safeWindow = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
 
-    const articleKey  = location.pathname;
-    const PINYIN_STORAGE_KEY = 'pinyinProgress_' + articleKey;
+    function getCanonicalArticleKey(pathname) {
+        const bibleMatch = pathname.match(/\/(?:b|bsync)\/[^\/]+\/[^\/]+\/(\d+)\/(\d+)/);
+        if (bibleMatch) return 'pinyinProgress_bible_' + bibleMatch[1] + '_' + bibleMatch[2];
+        const idMatch = pathname.match(/\/(\d+)(?:\/\d+)*\/?$/);
+        if (idMatch) return 'pinyinProgress_article_' + idMatch[1];
+        return 'pinyinProgress_' + pathname;
+    }
+
+    function migrateOldPinyinKeys() {
+        if (localStorage.getItem('wol_pinyin_migrated_v2')) return;
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+            const key = localStorage.key(i);
+            if (!key || !key.startsWith('pinyinProgress_')) continue;
+            if (key.startsWith('pinyinProgress_article_') || key.startsWith('pinyinProgress_bible_')) continue;
+            try {
+                const data = JSON.parse(localStorage.getItem(key));
+                if (!data || !Object.keys(data).length) continue;
+                const pathPart = key.replace('pinyinProgress_', '');
+                const newKey = getCanonicalArticleKey(pathPart);
+                if (newKey === key) continue;
+                const existing = JSON.parse(localStorage.getItem(newKey) || '{}');
+                localStorage.setItem(newKey, JSON.stringify({ ...existing, ...data }));
+                localStorage.removeItem(key);
+            } catch(e) {}
+        }
+        localStorage.setItem('wol_pinyin_migrated_v2', 'true');
+    }
+    migrateOldPinyinKeys();
+
+    const PINYIN_STORAGE_KEY = getCanonicalArticleKey(location.pathname);
 
     let savedProgress = JSON.parse(localStorage.getItem(PINYIN_STORAGE_KEY) || '{}');
     let level   = localStorage.getItem(LEVEL_KEY) || 'advanced';
@@ -167,18 +234,6 @@
     function setMode(m) { localStorage.setItem(MODE_KEY, m); }
     function getPlaybackEnabled()      { return localStorage.getItem(PLAYBACK_KEY) === 'true'; }
     function setPlaybackEnabled(v)     { localStorage.setItem(PLAYBACK_KEY, v ? 'true' : 'false'); }
-
-
-    // ─────────────────────────────────────────────────────────────
-    // i18n — UI strings in EN / KO / JA / ES
-    // ─────────────────────────────────────────────────────────────
-    const _lang = (() => {
-        const l = (navigator.language || navigator.userLanguage || '').toLowerCase();
-        if (l.startsWith('ko')) return 'ko';
-        if (l.startsWith('ja')) return 'ja';
-        if (l.startsWith('es')) return 'es';
-        return 'en';
-    })();
 
     const T = {
         // Toasts
@@ -289,10 +344,6 @@ body.wol-highlighter-mode .wol-char-wrap *::selection { background: #b3d4ff; }
     box-shadow: none !important; text-decoration: none !important;
 }
 body.wol-study-mode:not(.wol-audio-active) #contextMenu { display: none !important; pointer-events: none !important; }
-
-
-
-
 
 /* ── Study icon button ── */
 #wol_study_icon_btn {
@@ -628,21 +679,6 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         row.appendChild(track);
         return row;
     }
-
-    // ─────────────────────────────────────────────────────────────
-    // 4. HOME URL
-    // ─────────────────────────────────────────────────────────────
-    let _cachedHomeUrl = null;
-
-    function captureHomeUrl() {
-        const a = document.querySelector('#menuHome a[href*="/wol/h/"]');
-        if (a) { _cachedHomeUrl = a.getAttribute('href'); return; }
-        const m = location.pathname.match(/^(\/[^/]+\/wol\/)[a-z]+\/(r\d+\/lp-[^/]+)/);
-        if (m) { _cachedHomeUrl = m[1] + 'h/' + m[2]; return; }
-        const prefix = location.pathname.match(/^(\/[^/]+\/)/);
-        _cachedHomeUrl = prefix ? prefix[1] + 'wol/h/r23/lp-chs' : '/cmn-Hans/wol/h/r23/lp-chs';
-    }
-    captureHomeUrl();
 
     // ─────────────────────────────────────────────────────────────
     // 5. PINYIN / STUDY LOGIC  (from script1)
@@ -1358,37 +1394,6 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         <text x="22" y="30" text-anchor="middle" font-family="serif" font-size="26" font-weight="bold" fill="white">字</text>
     </svg>`;
 
-    // ── Study icon in menuHome ──
-    let iconObserver = null;
-    function pauseObserver()  { if (iconObserver) iconObserver.disconnect(); }
-    function resumeObserver() {
-        if (iconObserver) iconObserver.observe(document.body, { childList: true, subtree: true });
-    }
-
-    function buildStudyIconInMenu() {
-        const menuHome = document.getElementById('menuHome');
-        if (!menuHome) return;
-        if (menuHome.querySelector('#wol_study_icon_btn') && !menuHome.querySelector('a')) return;
-        pauseObserver();
-        while (menuHome.firstChild) menuHome.removeChild(menuHome.firstChild);
-        menuHome.style.height = '44px';
-        menuHome.style.minHeight = '44px';
-        const iconBtn = document.createElement('div');
-        iconBtn.id = 'wol_study_icon_btn';
-        iconBtn.innerHTML = STUDY_SVG;
-        iconBtn.title = 'Study options';
-        iconBtn.addEventListener('click', (e) => {
-            e.preventDefault(); e.stopPropagation();
-            showPanel(iconBtn, buildStudyExtras);
-        }, true);
-        iconBtn.addEventListener('touchend', (e) => {
-            e.preventDefault(); e.stopPropagation();
-            showPanel(iconBtn, buildStudyExtras);
-        }, { capture: true, passive: false });
-        menuHome.appendChild(iconBtn);
-        resumeObserver();
-    }
-
     // ── Redirect handling ──
     function handleRedirects() {
         if (sessionStorage.getItem('wol_watchtower_redirect') === '1') {
@@ -1822,12 +1827,17 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         // Also apply on every play event (WOL may reset it)
         audio.addEventListener('play', () => { audio.playbackRate = getSavedSpeed(); });
 
-        // ── Speed button (SVG gauge icon) ──
+        // ── Speed button (clock + label) ──
         const btn = document.createElement('div');
         btn.id = 'wol_speed_btn';
         btn.title = 'Playback speed';
-        btn.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0 4px;flex-shrink:0;position:relative;margin-left:1px;vertical-align:middle;margin-top:2px;';
-        btn.innerHTML = '<span style="font-size:15px;line-height:1;display:flex;align-items:center;">🕓</span>';
+        btn.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;gap:3px;cursor:pointer;padding:0 5px;height:22px;min-width:44px;border-radius:6px;background:rgba(0,0,0,0.07);flex-shrink:0;margin-left:4px;margin-right:6px;margin-top:5px;transition:background 0.15s;';
+        btn.innerHTML = `
+            <span style="font-size:14px;line-height:1;">🕓</span>
+            <span id="wol_speed_label" style="font-size:12px;font-weight:600;color:#333;line-height:1;letter-spacing:-0.3px;">${savedSpeed === 1 ? '1x' : savedSpeed + 'x'}</span>
+        `;
+        btn.addEventListener('mouseover', () => btn.style.background = 'rgba(0,0,0,0.13)');
+        btn.addEventListener('mouseout',  () => btn.style.background = 'rgba(0,0,0,0.07)');
 
         // ── Dropdown menu ──
         let menuOpen = false;
@@ -1871,7 +1881,8 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                     e.stopPropagation();
                     localStorage.setItem(SPEED_KEY, val);
                     applySpeedToAudio(val);
-
+                    const label = document.getElementById('wol_speed_label');
+                    if (label) label.textContent = val === 1 ? '1x' : val + 'x';
                     closeMenu();
                 }
                 row.addEventListener('click', selectSpeed);
@@ -1879,13 +1890,14 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 menu.appendChild(row);
             });
 
-            // Position above the button
+            // Position below the button
             document.body.appendChild(menu);
             const btnRect = btn.getBoundingClientRect();
-            const menuH = menu.offsetHeight;
             const menuW = menu.offsetWidth;
-            menu.style.top  = Math.max(btnRect.top - menuH - 6, 4) + 'px';
-            menu.style.left = Math.min(btnRect.left, window.innerWidth - menuW - 8) + 'px';
+            const menuTop = btnRect.bottom + 6;
+            const menuLeft = Math.min(btnRect.left, window.innerWidth - menuW - 8);
+            menu.style.top  = Math.max(menuTop, 4) + 'px';
+            menu.style.left = Math.max(menuLeft, 8) + 'px';
 
             // Close on outside tap/click
             setTimeout(() => {
@@ -1903,23 +1915,43 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         btn.addEventListener('click', (e) => { e.stopPropagation(); menuOpen ? closeMenu() : openMenu(); });
         btn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); menuOpen ? closeMenu() : openMenu(); }, { passive: false });
 
-        // Insert after the play button (first mejs-button or mejs-play)
-        const playBtn = wrapper.querySelector('.mejs-play, .mejs-pause, .mejs-button');
-        if (playBtn) playBtn.insertAdjacentElement('afterend', btn);
-        else wrapper.appendChild(btn);
+        // Replace placeholder if present, otherwise insert after play button
+        const placeholder = wrapper.querySelector('#wol_speed_placeholder');
+        if (placeholder) placeholder.replaceWith(btn);
+        else {
+            const playBtn = wrapper.querySelector('.mejs-play, .mejs-pause, .mejs-button');
+            if (playBtn) playBtn.insertAdjacentElement('afterend', btn);
+            else wrapper.appendChild(btn);
+        }
     }
 
-    // Watch for playerwrapper becoming visible / audio element appearing
+    function injectSpeedPlaceholder() {
+        if (isIOS && !getPlaybackEnabled()) return;
+        if (getMode() !== 'study') return;
+        const wrapper = document.getElementById('playerwrapper');
+        if (!wrapper || wrapper.querySelector('#wol_speed_btn') || wrapper.querySelector('#wol_speed_placeholder')) return;
+        const placeholder = document.createElement('div');
+        placeholder.id = 'wol_speed_placeholder';
+        placeholder.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;min-width:44px;height:22px;margin-left:4px;margin-top:2px;flex-shrink:0;visibility:hidden;';
+        const playBtn = wrapper.querySelector('.mejs-play, .mejs-pause, .mejs-button');
+        if (playBtn) playBtn.insertAdjacentElement('afterend', placeholder);
+        else wrapper.appendChild(placeholder);
+    }
+
     const speedObserver = new MutationObserver(() => {
         const wrapper = document.getElementById('playerwrapper');
         if (!wrapper) return;
         const style = window.getComputedStyle(wrapper);
         if (style.display === 'none') return;
+        if (isIOS && !getPlaybackEnabled()) return;
+        injectSpeedPlaceholder();
         injectSpeedControl();
     });
     speedObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
-    // Also try immediately in case player is already visible
-    injectSpeedControl();
+    if (!isIOS || getPlaybackEnabled()) {
+        injectSpeedPlaceholder();
+        injectSpeedControl();
+    }
 
     // ─────────────────────────────────────────────────────────────
     // 6. HIGHLIGHTER LOGIC  (from script2)
@@ -3494,22 +3526,34 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
 
     // ── Search proximity default ──
     (function setSearchProximityDefault() {
-        const MANUAL_KEY = 'wol_proximity_user_chose';
-        const url = new URL(location.href);
-        const p = url.searchParams.get('p');
-        if (p === 'par') {
-            if (sessionStorage.getItem(MANUAL_KEY) === 'par') { sessionStorage.removeItem(MANUAL_KEY); }
-            else { url.searchParams.set('p','sen'); location.replace(url.toString()); return; }
-        } else if (p && p !== 'sen') { sessionStorage.removeItem(MANUAL_KEY); }
-        function attachProximityListener() {
-            const sel = document.querySelector('#proximitySelector select[name="p"]');
-            if (!sel || sel._wolProximityBound) return;
-            sel._wolProximityBound = true;
-            sel.addEventListener('change', () => { if (sel.value !== 'sen') sessionStorage.setItem(MANUAL_KEY, sel.value); else sessionStorage.removeItem(MANUAL_KEY); });
-        }
-        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', attachProximityListener);
-        else attachProximityListener();
-    })();
+    if (!location.pathname.includes('/wol/s/')) return;
+    const url = new URL(location.href);
+    const p = url.searchParams.get('p');
+    const q = url.searchParams.get('q') || '';
+    const CHOSE_KEY = 'wol_proximity_user_chose_' + q;
+    const userChose = sessionStorage.getItem(CHOSE_KEY);
+
+    if (p === 'par' && !userChose) {
+        url.searchParams.set('p', 'sen');
+        location.replace(url.toString());
+        return;
+    }
+
+    function attachProximityListener() {
+        const sel = document.querySelector('#proximitySelector select[name="p"]');
+        if (!sel || sel._wolProximityBound) return;
+        sel._wolProximityBound = true;
+        if (p) sel.value = p;
+        sel.addEventListener('change', () => {
+            sessionStorage.setItem(CHOSE_KEY, sel.value);
+            const url2 = new URL(location.href);
+            url2.searchParams.set('p', sel.value);
+            location.replace(url2.toString());
+        });
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', attachProximityListener);
+    else attachProximityListener();
+})();
 
     // ─────────────────────────────────────────────────────────────
     // 8. QUESTION BOXES  (from script4)
@@ -3517,7 +3561,6 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     (function initQuestionBoxes() {
         const isSearchResult = /[?&]p=/.test(location.search);
         const SCROLL_OFFSET = 136;
-        if (isSearchResult) history.replaceState(null, '', location.pathname + location.hash);
 
         function styleQuestionAsBox(questionP) {
             if (!questionP) return;
@@ -3531,7 +3574,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         function scrollToMkhl() {
             const target = document.querySelector('span.mkhl'); if (!target) return;
             window.scrollTo({ top: target.getBoundingClientRect().top + window.scrollY - SCROLL_OFFSET, behavior: 'smooth' });
-            history.replaceState(null, '', location.pathname + location.hash);
+            history.replaceState(null, '', location.pathname + location.search + location.hash);
         }
         function rescrollWhenIdle() {
             let lastY = window.scrollY, stable = 0;

@@ -17,9 +17,9 @@
 // VERSION CHECK
 // ─────────────────────────────────────────────────────────────
 const CURRENT_VERSION = "1.1";
-const VERSION_URL = "https://cdn.jsdelivr.net/gh/javalan/userscripts@HEAD/version_highlighter.json";
+const VERSION_URL = "https://cdn.jsdelivr.net/gh/javalan/userscripts@main/version_highlighter.json";
 // To purge jsDelivr cache after updating version_highlighter.json:
-// https://purge.jsdelivr.net/gh/javalan/userscripts@HEAD/version_highlighter.json
+// https://purge.jsdelivr.net/gh/javalan/userscripts@main/version_highlighter.json
 
 function compareVersions(local, remote) {
     const l = local.split('.').map(Number);

@@ -30,7 +30,7 @@
 (function() {
     'use strict';
 
-    const CURRENT_VERSION = "1.1";
+    const CURRENT_VERSION = "1.2";
     const VERSION_URL = "https://cdn.jsdelivr.net/gh/javalan/userscripts@main/version.json";
 
     function compareVersions(local, remote) {

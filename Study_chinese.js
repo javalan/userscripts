@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WOL Unified (Pinyin · Highlighter · Sync · Question Boxes)
 // @namespace    wol-unified
-// @version      1.7
+// @version      1.8
 // @description  Study/pinyin mode, 3-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
@@ -32,7 +32,7 @@
 (function() {
     'use strict';
 
-    const CURRENT_VERSION = "1.7";
+    const CURRENT_VERSION = "1.8";
     const VERSION_URL = "https://apple.helioho.st/Study_chinese.php";
 
     function compareVersions(local, remote) {

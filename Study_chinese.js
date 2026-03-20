@@ -32,7 +32,8 @@
 
     const CURRENT_VERSION = "1.5";
     const VERSION_URL = "https://cdn.jsdelivr.net/gh/javalan/userscripts@HEAD/version.json";
-    const PURGE_URL = "https://purge.jsdelivr.net/gh/javalan/userscripts@HEAD/version.json";
+    // To purge jsDelivr cache after updating version.json:
+    // https://purge.jsdelivr.net/gh/javalan/userscripts@HEAD/version.json
 
     function compareVersions(local, remote) {
         const l = local.split('.').map(Number);

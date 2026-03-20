@@ -1,12 +1,12 @@
 // ==UserScript==
 // @name         WOL Unified (Pinyin · Highlighter · Sync · Question Boxes)
 // @namespace    wol-unified
-// @version      1.1
+// @version      1.4
 // @description  Study/pinyin mode, 3-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
-// @updateURL    https://raw.githubusercontent.com/javalan/userscripts/master/Study_chinese.js
-// @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/master/Study_chinese.js
+// @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
+// @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
 // @grant        unsafeWindow
 // ==/UserScript==
 
@@ -30,7 +30,7 @@
 (function() {
     'use strict';
 
-    const CURRENT_VERSION = "1.2";
+    const CURRENT_VERSION = "1.4";
     const VERSION_URL = "https://cdn.jsdelivr.net/gh/javalan/userscripts@main/version.json";
 
     function compareVersions(local, remote) {
@@ -2207,8 +2207,8 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         return m ? `scripture_${m[1]}_${m[2]}` : null;
     }
     function extractArticleRef(url) {
-        const m1 = url.match(/\/(?:d|dsync|b|bsync|m|msync|meetings|lv|pc)\/[^\/]+\/(?:[^\/]+\/)*([0-9]+)(?:[^#\/\?]*)/);
-        if (m1) return `article_${m1[1]}`;
+        const m1 = url.match(/\/(?:d|dsync|m|msync|meetings|lv|pc)\/((?:[^\/]+\/)*[^\/]+?)\/(\d+)(?:[^#\/\?]*)/);
+        if (m1) return `article_${m1[1].replace(/\//g,'_')}_${m1[2]}`;
         const m2 = url.match(/\/(w|wp|g|km|mwb)\/[^\/]+\/[^\/]+\/([^#\/\?]+)/);
         if (m2) return `pub_${m2[1]}_${m2[2]}`;
         return null;
@@ -2272,8 +2272,6 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         const keys = [];
         const sr = extractScriptureRef(window.location.pathname);
         if (sr) keys.push('tooltip_' + sr);
-        const ar = extractArticleRef(window.location.pathname);
-        if (ar) keys.push('tooltip_' + ar);
         return keys;
     }
 

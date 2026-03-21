@@ -1981,17 +1981,27 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         // links) should suppress WOL's qu collapse handler.
         return !e.target.closest('ruby, rb, rt, .wol-char-wrap, strong');
     }
+    let _quTouchStartY = 0;
     document.addEventListener('touchstart', (e) => {
         if (!isNonInteractiveQuTap(e)) return;
+        if (e.target.closest('.tooltip, .tooltipContainer')) return;
+        _quTouchStartY = e.touches[0].clientY;
         e.stopImmediatePropagation();
-        // For links (par numbers): don't preventDefault so click still fires
-        // For everything else: also preventDefault to block qu collapse
-        if (!e.target.closest('a')) {
-            if (!document.getElementById('wol_hl_float_palette')) e.preventDefault();
-        }
     }, { capture: true, passive: false });
+
+    document.addEventListener('touchmove', (e) => {
+        if (!e.target.closest('.qu')) return;
+        if (e.target.closest('.tooltip, .tooltipContainer')) return;
+        const dy = Math.abs(e.touches[0].clientY - _quTouchStartY);
+        if (dy > 8) return; // it's a scroll — let it through
+        if (getMode() !== 'study') return;
+        if (!e.target.closest('ruby, rb, rt, .wol-char-wrap, strong, a')) {
+            e.stopImmediatePropagation();
+        }
+    }, { capture: true, passive: true });
     document.addEventListener('click', (e) => {
         if (!isNonInteractiveQuTap(e)) return;
+        if (e.target.closest('.tooltip, .tooltipContainer')) return;
         e.stopImmediatePropagation(); e.preventDefault();
         if (e.target.closest('a') && e.target.closest('a[id^="p"], .parNum, [class*="parNum"]')) enableStudyAudio();
     }, true);

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WOL Unified (Pinyin · Highlighter · Sync · Question Boxes)
 // @namespace    wol-unified
-// @version      1.8
+// @version      1.9
 // @description  Study/pinyin mode, 3-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
@@ -30,6 +30,125 @@
 
 (function() {
     'use strict';
+
+    const CURRENT_VERSION = "1.9";
+
+    function compareVersions(local, remote) {
+        const l = local.split('.').map(Number);
+        const r = remote.split('.').map(Number);
+        for (let i = 0; i < Math.max(l.length, r.length); i++) {
+            const li = l[i] || 0;
+            const ri = r[i] || 0;
+            if (li < ri) return -1;
+            if (li > ri) return 1;
+        }
+        return 0;
+    }
+
+    const _lang = (() => {
+        const l = (navigator.language || navigator.userLanguage || '').toLowerCase();
+        if (l.startsWith('ko')) return 'ko';
+        if (l.startsWith('ja')) return 'ja';
+        if (l.startsWith('es')) return 'es';
+        return 'en';
+    })();
+
+    function showUpdateToast(versionData) {
+        if (localStorage.getItem('study_chinese_update_' + versionData.version)) return;
+
+        const toast = document.createElement('div');
+        toast.style.position = 'fixed';
+        toast.style.bottom = '20px';
+        toast.style.left = '50%';
+        toast.style.transform = 'translateX(-50%) translateY(50px)';
+        toast.style.backgroundColor = '#f2f2f7';
+        toast.style.border = '1px solid #c1c1c1';
+        toast.style.borderRadius = '6px';
+        toast.style.boxShadow = '0 3px 10px rgba(0,0,0,0.15)';
+        toast.style.padding = '16px 18px';
+        toast.style.zIndex = '999999';
+        toast.style.width = '180px';
+        toast.style.display = 'flex';
+        toast.style.flexDirection = 'column';
+        toast.style.alignItems = 'center';
+        toast.style.gap = '8px';
+        toast.style.fontFamily = 'system-ui, sans-serif';
+        toast.style.fontSize = '14px';
+        toast.style.color = '#1a1a1a';
+        toast.style.transition = 'transform 0.3s ease, opacity 0.3s ease';
+        toast.style.opacity = '0';
+
+        const closeBtn = document.createElement('span');
+        closeBtn.textContent = '✕';
+        closeBtn.style.position = 'absolute';
+        closeBtn.style.top = '4px';
+        closeBtn.style.right = '6px';
+        closeBtn.style.cursor = 'pointer';
+        closeBtn.style.fontWeight = 'bold';
+        closeBtn.style.fontSize = '24px';
+        closeBtn.onclick = () => {
+            toast.remove();
+            localStorage.setItem('study_chinese_update_' + versionData.version, 'true');
+        };
+        toast.appendChild(closeBtn);
+
+        const textContainer = document.createElement('div');
+        textContainer.style.textAlign = 'center';
+
+        const heading = document.createElement('div');
+        heading.textContent = 'STUDY CHINESE';
+        heading.style.fontWeight = 'bold';
+        heading.style.fontSize = '16px';
+        heading.style.textTransform = 'uppercase';
+        textContainer.appendChild(heading);
+
+        const updateLabels = {
+            en: 'Update available 🔔',
+            ko: '업데이트 가능 🔔',
+            ja: 'アップデートあり 🔔',
+            es: 'Actualización disponible 🔔',
+        };
+        const watchLabels = {
+            en: '▶  How to update',
+            ko: '▶  업데이트 방법',
+            ja: '▶  更新方法',
+            es: '▶  Cómo actualizar',
+        };
+        const subheading = document.createElement('div');
+        subheading.textContent = updateLabels[_lang] || updateLabels.en;
+        subheading.style.fontWeight = 'normal';
+        subheading.style.fontSize = '14px';
+        textContainer.appendChild(subheading);
+        toast.appendChild(textContainer);
+
+        const videoBtn = document.createElement('button');
+        videoBtn.textContent = watchLabels[_lang] || watchLabels.en;
+        videoBtn.style.padding = '10px 14px';
+        videoBtn.style.backgroundColor = '#4a90e2';
+        videoBtn.style.color = 'white';
+        videoBtn.style.border = 'none';
+        videoBtn.style.borderRadius = '4px';
+        videoBtn.style.cursor = 'pointer';
+        videoBtn.style.fontWeight = '500';
+        videoBtn.style.fontSize = '14px';
+        videoBtn.style.alignSelf = 'center';
+        videoBtn.onclick = () => {
+            if (versionData.install_video) {
+                openFullscreenVideo(versionData.install_video);
+            } else {
+                alert('No video URL available.');
+            }
+        };
+        toast.appendChild(videoBtn);
+
+        if (document.body) document.body.appendChild(toast);
+        else window.addEventListener('load', () => document.body.appendChild(toast));
+
+        requestAnimationFrame(() => {
+            toast.style.transform = 'translateX(-50%) translateY(0)';
+            toast.style.opacity = '1';
+        });
+    }
 
     // ── Reusable fullscreen video modal ──
     function openFullscreenVideo(videoURL) {
@@ -158,125 +277,6 @@
             } else {
                 showFallback(); // fallback if no fullscreen API
             }
-        });
-    }
-
-    const CURRENT_VERSION = "1.8";
-
-    function compareVersions(local, remote) {
-        const l = local.split('.').map(Number);
-        const r = remote.split('.').map(Number);
-        for (let i = 0; i < Math.max(l.length, r.length); i++) {
-            const li = l[i] || 0;
-            const ri = r[i] || 0;
-            if (li < ri) return -1;
-            if (li > ri) return 1;
-        }
-        return 0;
-    }
-
-    const _lang = (() => {
-        const l = (navigator.language || navigator.userLanguage || '').toLowerCase();
-        if (l.startsWith('ko')) return 'ko';
-        if (l.startsWith('ja')) return 'ja';
-        if (l.startsWith('es')) return 'es';
-        return 'en';
-    })();
-
-    function showUpdateToast(versionData) {
-        if (localStorage.getItem('study_chinese_update_' + versionData.version)) return;
-
-        const toast = document.createElement('div');
-        toast.style.position = 'fixed';
-        toast.style.bottom = '20px';
-        toast.style.left = '50%';
-        toast.style.transform = 'translateX(-50%) translateY(50px)';
-        toast.style.backgroundColor = '#f2f2f7';
-        toast.style.border = '1px solid #c1c1c1';
-        toast.style.borderRadius = '6px';
-        toast.style.boxShadow = '0 3px 10px rgba(0,0,0,0.15)';
-        toast.style.padding = '16px 18px';
-        toast.style.zIndex = '999999';
-        toast.style.width = '180px';
-        toast.style.display = 'flex';
-        toast.style.flexDirection = 'column';
-        toast.style.alignItems = 'center';
-        toast.style.gap = '8px';
-        toast.style.fontFamily = 'system-ui, sans-serif';
-        toast.style.fontSize = '14px';
-        toast.style.color = '#1a1a1a';
-        toast.style.transition = 'transform 0.3s ease, opacity 0.3s ease';
-        toast.style.opacity = '0';
-
-        const closeBtn = document.createElement('span');
-        closeBtn.textContent = '✕';
-        closeBtn.style.position = 'absolute';
-        closeBtn.style.top = '4px';
-        closeBtn.style.right = '6px';
-        closeBtn.style.cursor = 'pointer';
-        closeBtn.style.fontWeight = 'bold';
-        closeBtn.style.fontSize = '24px';
-        closeBtn.onclick = () => {
-            toast.remove();
-            localStorage.setItem('study_chinese_update_' + versionData.version, 'true');
-        };
-        toast.appendChild(closeBtn);
-
-        const textContainer = document.createElement('div');
-        textContainer.style.textAlign = 'center';
-
-        const heading = document.createElement('div');
-        heading.textContent = 'STUDY CHINESE';
-        heading.style.fontWeight = 'bold';
-        heading.style.fontSize = '16px';
-        heading.style.textTransform = 'uppercase';
-        textContainer.appendChild(heading);
-
-        const updateLabels = {
-            en: 'Update available 🔔',
-            ko: '업데이트 가능 🔔',
-            ja: 'アップデートあり 🔔',
-            es: 'Actualización disponible 🔔',
-        };
-        const watchLabels = {
-            en: '▶  How to update',
-            ko: '▶  업데이트 방법',
-            ja: '▶  更新方法',
-            es: '▶  Cómo actualizar',
-        };
-        const subheading = document.createElement('div');
-        subheading.textContent = updateLabels[_lang] || updateLabels.en;
-        subheading.style.fontWeight = 'normal';
-        subheading.style.fontSize = '14px';
-        textContainer.appendChild(subheading);
-        toast.appendChild(textContainer);
-
-        const videoBtn = document.createElement('button');
-        videoBtn.textContent = watchLabels[_lang] || watchLabels.en;
-        videoBtn.style.padding = '10px 14px';
-        videoBtn.style.backgroundColor = '#4a90e2';
-        videoBtn.style.color = 'white';
-        videoBtn.style.border = 'none';
-        videoBtn.style.borderRadius = '4px';
-        videoBtn.style.cursor = 'pointer';
-        videoBtn.style.fontWeight = '500';
-        videoBtn.style.fontSize = '14px';
-        videoBtn.style.alignSelf = 'center';
-        videoBtn.onclick = () => {
-            if (versionData.install_video) {
-                openFullscreenVideo(versionData.install_video);
-            } else {
-                alert('No video URL available.');
-            }
-        };
-        toast.appendChild(videoBtn);
-
-        if (document.body) document.body.appendChild(toast);
-        else window.addEventListener('load', () => document.body.appendChild(toast));
-
-        requestAnimationFrame(() => {
-            toast.style.transform = 'translateX(-50%) translateY(0)';
-            toast.style.opacity = '1';
         });
     }
 
@@ -741,32 +741,86 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
 
         if (typeof extraSectionsBuilder === 'function') extraSectionsBuilder(panel);
 
-        // ── "What's New" section — Regular mode only ──
+        // ── "How to use" section — hidden by default, revealed by ℹ️ button ──
         if (!skipModeSection && getMode() === 'default') {
-            const wnDivider = document.createElement('div');
-            wnDivider.className = 'pp-divider';
-            panel.appendChild(wnDivider);
- 
-            const wnSection = document.createElement('div');
-            wnSection.className = 'pp-section';
-            wnSection.style.padding = '6px 0 8px 0';
- 
-            const wnTitle = document.createElement('div');
-            wnTitle.className = 'pp-section-title';
-            wnTitle.style.padding = '6px 14px 2px 14px';
-            wnTitle.textContent = t('whatsNewTitle');
-            wnSection.appendChild(wnTitle);
- 
-            const wnBtn = document.createElement('button');
-            wnBtn.className = 'pp-btn pp-nav';
-            wnBtn.textContent = t('whatsNew');
-            wnBtn.addEventListener('click', () => {
-                hidePanel();
-                const videoURL = 'https://d1oegedfje2ody.cloudfront.net/video4_en.mp4';
-                openFullscreenVideo(videoURL);
-            });
-            wnSection.appendChild(wnBtn);
-            panel.appendChild(wnSection);
+            // ── Add ℹ️ button to the mode section title row ──
+            const modeSection = panel.querySelector('.pp-section');
+            if (modeSection) {
+                const modeTitle = modeSection.querySelector('.pp-section-title');
+                if (modeTitle) {
+                    modeTitle.style.display = 'flex';
+                    modeTitle.style.alignItems = 'center';
+                    modeTitle.style.justifyContent = 'space-between';
+
+                    const infoBtn = document.createElement('span');
+                    infoBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="14" cy="14" r="12" stroke="currentColor" stroke-width="1.5"/>
+                    <circle cx="14" cy="9" r="1.4" fill="currentColor"/>
+                    <line x1="14" y1="13" x2="14" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>`;
+                    infoBtn.style.cssText = 'display:inline-flex;align-items:center;cursor:pointer;opacity:1;transition:opacity 0.15s,transform 0.15s;flex-shrink:0;color:#666;-webkit-user-select:none;user-select:none;';
+                    infoBtn.title = t('whatsNewTitle');
+                    modeTitle.appendChild(infoBtn);
+
+                    // Hidden expandable section
+                    const wnDivider = document.createElement('div');
+                    wnDivider.className = 'pp-divider';
+                    wnDivider.style.cssText = 'height:1px;background:#e8e8e8;margin:-2px 0;overflow:hidden;max-height:0;transition:max-height 0.28s cubic-bezier(.4,0,.2,1),opacity 0.22s ease;opacity:0;';
+
+                    const wnSection = document.createElement('div');
+                    wnSection.style.cssText = 'padding:0;overflow:hidden;max-height:0;transition:max-height 0.28s cubic-bezier(.4,0,.2,1),opacity 0.22s ease,padding 0.22s ease;opacity:0;';
+
+                    const wnInner = document.createElement('div');
+                    wnInner.style.padding = '6px 0 8px 0';
+
+                    const wnTitle = document.createElement('div');
+                    wnTitle.className = 'pp-section-title';
+                    wnTitle.style.padding = '6px 14px 2px 14px';
+                    wnTitle.textContent = t('whatsNewTitle');
+                    wnInner.appendChild(wnTitle);
+
+                    const wnBtn = document.createElement('button');
+                    wnBtn.className = 'pp-btn pp-nav';
+                    wnBtn.textContent = t('whatsNew');
+                    wnBtn.addEventListener('click', () => {
+                        hidePanel();
+                        openFullscreenVideo('https://d1oegedfje2ody.cloudfront.net/video4_en.mp4');
+                    });
+                    wnInner.appendChild(wnBtn);
+                    wnSection.appendChild(wnInner);
+
+                    panel.appendChild(wnDivider);
+                    panel.appendChild(wnSection);
+
+                    let expanded = false;
+                    function toggleHowToUse(e) {
+                        e.preventDefault(); e.stopPropagation();
+                        expanded = !expanded;
+                        infoBtn.style.transform = expanded ? 'scale(1.15)' : 'scale(1)';
+                        if (expanded) {
+                            wnDivider.style.maxHeight = '2px';
+                            wnDivider.style.opacity = '1';
+                            wnSection.style.maxHeight = '80px';
+                            wnSection.style.opacity = '1';
+                        } else {
+                            wnDivider.style.maxHeight = '0';
+                            wnDivider.style.opacity = '0';
+                            wnSection.style.maxHeight = '0';
+                            wnSection.style.opacity = '0';
+                        }
+                        // Reposition panel after expansion
+                        setTimeout(() => {
+                            const pw = 240;
+                            const rect = panel.getBoundingClientRect();
+                            if (rect.bottom > window.innerHeight - 10) {
+                                panel.style.top = Math.max(parseInt(panel.style.top) - (rect.bottom - window.innerHeight + 10), 4) + 'px';
+                            }
+                        }, 30);
+                    }
+                    infoBtn.addEventListener('click', toggleHowToUse);
+                    infoBtn.addEventListener('touchend', toggleHowToUse, { passive: false });
+                }
+            }
         }
 
         panel.style.display = 'block';

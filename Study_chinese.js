@@ -8,7 +8,7 @@
 // @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
 // @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
 // @grant        unsafeWindow
-// @require      https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese_version.js?ts=20260422
+// @require      https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese_version.js?ts=20260321
 // ==/UserScript==
 
 // ─────────────────────────────────────────────────────────────
@@ -1993,9 +1993,8 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     document.addEventListener('click', (e) => {
         if (!isNonInteractiveQuTap(e)) return;
         e.stopImmediatePropagation(); e.preventDefault();
-        if (e.target.closest('a')) enableStudyAudio();
+        if (e.target.closest('a') && e.target.closest('a[id^="p"], .parNum, [class*="parNum"]')) enableStudyAudio();
     }, true);
-
 
     // ─────────────────────────────────────────────────────────────
     // Audio speed controller — injected into #playerwrapper

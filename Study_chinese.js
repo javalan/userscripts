@@ -8,12 +8,11 @@
 // @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
 // @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
 // @grant        unsafeWindow
-// @grant        GM_xmlhttpRequest
-// @connect      cdn.jsdelivr.net
+// @require      https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese_version.js?ts=20260321
 // ==/UserScript==
 
 // ─────────────────────────────────────────────────────────────
-// 0. PRE-HIDE RUBY  (must run before everything else)
+// 0. PRE-HIDE RUBY (must run before everything else)
 // ─────────────────────────────────────────────────────────────
 (function preHideRuby() {
     if (localStorage.getItem('wol_app_mode') !== 'study') return;
@@ -32,8 +31,137 @@
 (function() {
     'use strict';
 
+    // ── Reusable fullscreen video modal ──
+    function openFullscreenVideo(videoURL) {
+        const modal = document.createElement('div');
+        modal.style.position = 'fixed';
+        modal.style.top = '0';
+        modal.style.left = '0';
+        modal.style.width = '100%';
+        modal.style.height = '100%';
+        modal.style.background = 'rgba(0,0,0,0.9)';
+        modal.style.zIndex = '2147483647'; // maximum possible z-index
+        modal.style.display = 'flex';
+        modal.style.justifyContent = 'center';
+        modal.style.alignItems = 'center';
+        modal.style.flexDirection = 'column';
+
+        // Spinner CSS (inject only once)
+        if (!document.getElementById('modal-spinner-style')) {
+            const style = document.createElement('style');
+            style.id = 'modal-spinner-style';
+            style.innerHTML = `
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        // Spinner element
+        const spinner = document.createElement('div');
+        spinner.style.width = '50px';
+        spinner.style.height = '50px';
+        spinner.style.border = '5px solid rgba(255,255,255,0.3)';
+        spinner.style.borderTopColor = 'white';
+        spinner.style.borderRadius = '50%';
+        spinner.style.animation = 'spin 1s linear infinite';
+        modal.appendChild(spinner);
+
+        // Video element
+        const video = document.createElement('video');
+        video.src = videoURL;
+        video.controls = true;
+        video.autoplay = true;
+        video.setAttribute('playsinline', '');
+        video.style.width = '100%';
+        video.style.maxWidth = '900px';
+        video.style.display = 'none';
+        video.style.borderRadius = '6px';
+        video.style.boxShadow = '0 4px 20px rgba(0,0,0,0.5)';
+        modal.appendChild(video);
+
+        // Add modal to DOM
+        document.body.appendChild(modal);
+
+        // ── IMMEDIATE: hide version reminder ──
+        const versionContainer = document.getElementById('versionReminder');
+        if (versionContainer) {
+            versionContainer.style.display = 'none';
+            versionContainer.style.zIndex = '-1'; // belt and suspenders
+        }
+
+        let isLoading = true;
+        let timeoutTimer = setTimeout(() => {
+            if (isLoading) {
+                alert('Video loading timed out. Please try again.');
+                closeModal();
+            }
+        }, 15000);
+
+        // Close modal function (restores version reminder)
+        const closeModal = () => {
+            video.pause();
+            if (modal.parentNode) modal.remove();
+            if (versionContainer) {
+                versionContainer.style.display = 'block';
+                versionContainer.style.zIndex = ''; // restore original z-index
+            }
+        };
+
+        // Exit fullscreen closes modal
+        document.addEventListener('fullscreenchange', () => {
+            if (!document.fullscreenElement) closeModal();
+        });
+        video.addEventListener('webkitendfullscreen', closeModal);
+
+        // Click outside video closes modal
+        modal.addEventListener('click', e => {
+            if (e.target === modal) closeModal();
+        });
+
+        // When metadata loads, hide spinner and request fullscreen
+        video.addEventListener('loadedmetadata', () => {
+            isLoading = false;
+            clearTimeout(timeoutTimer);
+
+            // Hide spinner immediately
+            spinner.style.display = 'none';
+
+            const showFallback = () => {
+                video.style.display = 'block';
+                video.style.opacity = '1';
+            };
+
+            const isDesktop = !/iPad|iPhone|iPod/.test(navigator.userAgent);
+            if (isDesktop) {
+                video.style.display = 'block';
+                video.style.opacity = '1'; // show immediately
+                video.style.position = 'fixed';
+                video.style.top = '0';
+                video.style.left = '0';
+                video.style.width = '100%';
+                video.style.height = '100%';
+                video.style.zIndex = '9999';
+                video.style.backgroundColor = 'black';
+                video.setAttribute('controls', '');
+            }
+
+            // iOS fullscreen behavior
+            if (video.webkitEnterFullscreen) {
+                video.webkitEnterFullscreen(); // iOS Safari — synchronous
+            } else if (video.requestFullscreen) {
+                video.requestFullscreen().catch(showFallback);
+            } else if (video.webkitRequestFullscreen) {
+                video.webkitRequestFullscreen().catch(showFallback);
+            } else {
+                showFallback(); // fallback if no fullscreen API
+            }
+        });
+    }
+
     const CURRENT_VERSION = "1.8";
-    const VERSION_URL = "https://apple.helioho.st/Study_chinese.php";
 
     function compareVersions(local, remote) {
         const l = local.split('.').map(Number);
@@ -69,7 +197,7 @@
         toast.style.boxShadow = '0 3px 10px rgba(0,0,0,0.15)';
         toast.style.padding = '16px 18px';
         toast.style.zIndex = '999999';
-        toast.style.width = '180px'; // compact
+        toast.style.width = '180px';
         toast.style.display = 'flex';
         toast.style.flexDirection = 'column';
         toast.style.alignItems = 'center';
@@ -80,7 +208,6 @@
         toast.style.transition = 'transform 0.3s ease, opacity 0.3s ease';
         toast.style.opacity = '0';
 
-        // Close button ✕
         const closeBtn = document.createElement('span');
         closeBtn.textContent = '✕';
         closeBtn.style.position = 'absolute';
@@ -95,11 +222,9 @@
         };
         toast.appendChild(closeBtn);
 
-        // Text container
         const textContainer = document.createElement('div');
         textContainer.style.textAlign = 'center';
 
-        // Heading (STUDY CHINESE — always English)
         const heading = document.createElement('div');
         heading.textContent = 'STUDY CHINESE';
         heading.style.fontWeight = 'bold';
@@ -107,7 +232,6 @@
         heading.style.textTransform = 'uppercase';
         textContainer.appendChild(heading);
 
-        // Subheading — translated
         const updateLabels = {
             en: 'Update available 🔔',
             ko: '업데이트 가능 🔔',
@@ -115,23 +239,21 @@
             es: 'Actualización disponible 🔔',
         };
         const watchLabels = {
-            en: 'Watch Video',
-            ko: '동영상 보기',
-            ja: '動画を見る',
-            es: 'Ver video',
+            en: '▶  How to update',
+            ko: '▶  업데이트 방법',
+            ja: '▶  更新方法',
+            es: '▶  Cómo actualizar',
         };
         const subheading = document.createElement('div');
         subheading.textContent = updateLabels[_lang] || updateLabels.en;
         subheading.style.fontWeight = 'normal';
         subheading.style.fontSize = '14px';
         textContainer.appendChild(subheading);
-
         toast.appendChild(textContainer);
 
-        // Watch Video Button (single line, slightly taller)
         const videoBtn = document.createElement('button');
         videoBtn.textContent = watchLabels[_lang] || watchLabels.en;
-        videoBtn.style.padding = '10px 14px'; // taller for proper button feel
+        videoBtn.style.padding = '10px 14px';
         videoBtn.style.backgroundColor = '#4a90e2';
         videoBtn.style.color = 'white';
         videoBtn.style.border = 'none';
@@ -140,7 +262,13 @@
         videoBtn.style.fontWeight = '500';
         videoBtn.style.fontSize = '14px';
         videoBtn.style.alignSelf = 'center';
-        videoBtn.onclick = () => window.open(versionData.install_video, '_blank');
+        videoBtn.onclick = () => {
+            if (versionData.install_video) {
+                openFullscreenVideo(versionData.install_video);
+            } else {
+                alert('No video URL available.');
+            }
+        };
         toast.appendChild(videoBtn);
 
         if (document.body) document.body.appendChild(toast);
@@ -152,23 +280,16 @@
         });
     }
 
-    window.addEventListener('load', () => {
-        GM_xmlhttpRequest({
-            method: 'GET',
-            url: VERSION_URL,
-            onload: (response) => {
-                try {
-                    const data = JSON.parse(response.responseText);
-                    if (compareVersions(CURRENT_VERSION, data.version) < 0) {
-                        showUpdateToast(data);
-                    }
-                } catch(e) {
-                    console.warn('Version parse failed:', e);
-                }
-            },
-            onerror: (e) => console.warn('Version fetch failed:', e)
-        });
-    });
+    // ─────────────────────────────────────────────────────────────
+    // 1. Version check using @require file (no fetch, CSP safe)
+    // ─────────────────────────────────────────────────────────────
+    (function checkVersion() {
+        if (!window.STUDY_CHINESE_VERSION) return;
+        const data = window.STUDY_CHINESE_VERSION;
+        if (compareVersions(CURRENT_VERSION, data.version) < 0) {
+            showUpdateToast(data);
+        }
+    })();
 
     // ─────────────────────────────────────────────────────────────
     // 1. CONSTANTS & SHARED STATE
@@ -283,6 +404,8 @@
         invalidFormat:    { en: 'Invalid file format',            ko: '잘못된 파일 형식',              ja: '無効なファイル形式',                es: 'Formato de archivo no válido' },
         pinyinFound:      { en: 'Pinyin progress found in this file — import it too?', ko: '이 파일에 병음 학습 데이터가 있습니다 — 함께 가져올까요?', ja: 'このファイルにピンインデータがあります — 一緒に読み込みますか？', es: '¿Este archivo contiene progreso de pinyin — importarlo también?' },
         speed:            { en: 'SPEED', ko: '속도', ja: 'スピード', es: 'VELOCIDAD' },
+        whatsNewTitle:    { en: 'How to use',     ko: '사용 방법',      ja: '使い方',         es: 'Cómo usarlo' },
+        whatsNew:         { en: '▶  Watch video', ko: '▶  동영상 보기', ja: '▶  動画を見る',  es: '▶  Ver video' },
         selectFirst:      { en: 'Select text first',              ko: '먼저 텍스트를 선택하세요',      ja: 'テキストを先に選択してください',    es: 'Primero selecciona el texto' },
         linkNotFound:     { en: 'Link not found on this page.',   ko: '이 페이지에서 링크를 찾을 수 없습니다.', ja: 'このページにリンクが見つかりません。', es: 'Enlace no encontrado en esta página.' },
         noWatchtower:     { en: 'Could not find Watchtower link.', ko: '파수대 링크를 찾을 수 없습니다.', ja: '塔の見張りのリンクが見つかりません。', es: 'No se encontró el enlace de La Atalaya.' },
@@ -617,6 +740,34 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         }
 
         if (typeof extraSectionsBuilder === 'function') extraSectionsBuilder(panel);
+
+        // ── "What's New" section — Regular mode only ──
+        if (!skipModeSection && getMode() === 'default') {
+            const wnDivider = document.createElement('div');
+            wnDivider.className = 'pp-divider';
+            panel.appendChild(wnDivider);
+ 
+            const wnSection = document.createElement('div');
+            wnSection.className = 'pp-section';
+            wnSection.style.padding = '6px 0 8px 0';
+ 
+            const wnTitle = document.createElement('div');
+            wnTitle.className = 'pp-section-title';
+            wnTitle.style.padding = '6px 14px 2px 14px';
+            wnTitle.textContent = t('whatsNewTitle');
+            wnSection.appendChild(wnTitle);
+ 
+            const wnBtn = document.createElement('button');
+            wnBtn.className = 'pp-btn pp-nav';
+            wnBtn.textContent = t('whatsNew');
+            wnBtn.addEventListener('click', () => {
+                hidePanel();
+                const videoURL = 'https://d1oegedfje2ody.cloudfront.net/video4_en.mp4';
+                openFullscreenVideo(videoURL);
+            });
+            wnSection.appendChild(wnBtn);
+            panel.appendChild(wnSection);
+        }
 
         panel.style.display = 'block';
         panel.getBoundingClientRect();
@@ -2027,8 +2178,11 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         return lastPct;
     }
     (function patchInsertRule() {
-        const orig = CSSStyleSheet.prototype.insertRule;
-        CSSStyleSheet.prototype.insertRule = function(rule, index) {
+        const targetProto = (typeof unsafeWindow !== 'undefined')
+            ? unsafeWindow.CSSStyleSheet.prototype
+            : CSSStyleSheet.prototype;
+        const orig = targetProto.insertRule;
+        targetProto.insertRule = function(rule, index) {
             const result = orig.call(this, rule, index);
             if (/\.scalableui\s*\{[^}]*font-size\s*:/i.test(rule)) {
                 const match = rule.match(/font-size\s*:\s*([^;}"]+)/i);
@@ -2037,12 +2191,12 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                     const display = document.getElementById('wol_fontsize_display');
                     if (display) display.textContent = pctToPt(newPct);
                     if (localStorage.getItem(FONT_SIZE_REMEMBER_KEY) === 'true'
-                        && !window._wolFontRestoring && window._wolFontInitSeen) {
+                        && !safeWindow._wolFontRestoring && safeWindow._wolFontInitSeen) {
                         localStorage.setItem(FONT_SIZE_KEY, newPct);
                     }
-                    window._wolFontInitSeen = true;
-                    clearTimeout(window._wolScrollTodayTimer);
-                    window._wolScrollTodayTimer = setTimeout(scrollToToday, 300);
+                    safeWindow._wolFontInitSeen = true;
+                    clearTimeout(safeWindow._wolScrollTodayTimer);
+                    safeWindow._wolScrollTodayTimer = setTimeout(scrollToToday, 300);
                 }
             }
             return result;
@@ -2083,13 +2237,13 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 const display = document.getElementById('wol_fontsize_display');
                 if (display) display.textContent = pctToPt(savedPct);
                 if (diff === 0) { scrollToToday(); return; }
-                window._wolFontRestoring = true;
+                safeWindow._wolFontRestoring = true;
                 const btnId = diff > 0 ? 'fontSizeLarger' : 'fontSizeSmaller';
                 const steps = Math.abs(diff);
                 let i = 0;
                 function clickNext() {
                     if (i++ >= steps) {
-                        window._wolFontRestoring = false;
+                        safeWindow._wolFontRestoring = false;
                         if (localStorage.getItem(FONT_SIZE_REMEMBER_KEY) === 'true') localStorage.setItem(FONT_SIZE_KEY, savedPct);
                         setTimeout(scrollToToday, 300); return;
                     }

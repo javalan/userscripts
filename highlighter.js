@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        WOL Highlighter
 // @namespace   https://wol.jw.org
-// @version     1.1
+// @version     1.0
 // @description 4-colour highlighter for iOS/iPadOS — save, restore, export/import
 // @match       https://wol.jw.org/*
 // @run-at      document-end
@@ -15,7 +15,7 @@
 // ─────────────────────────────────────────────────────────────
 // VERSION CHECK
 // ─────────────────────────────────────────────────────────────
-const CURRENT_VERSION = "1.1";
+const CURRENT_VERSION = "1.0";
 
 function compareVersions(local, remote) {
     const l = local.split('.').map(Number);
@@ -566,8 +566,7 @@ function getPageID(container = document.body) {
         if (link) {
             const href = link.getAttribute('href');
             if (href) {
-                const sr = extractScriptureRef(href); if (sr) return 'tooltip_' + sr;
-                const ar = extractArticleRef(href);   if (ar) return 'tooltip_' + ar;
+                const ar = extractArticleRef(href); if (ar) return 'tooltip_' + ar;
                 return 'tooltip_' + href.split('#')[0];
             }
         }
@@ -584,8 +583,7 @@ function getBaseReference(container = document.body) {
         if (link) {
             const href = link.getAttribute('href');
             if (href) {
-                const sr = extractScriptureRef(href); if (sr) return sr;
-                const ar = extractArticleRef(href);   if (ar) return ar;
+                const ar = extractArticleRef(href); if (ar) return ar;
                 return href.split('#')[0];
             }
         }
@@ -675,7 +673,14 @@ function saveHighlights(container = document.body) {
         if (container === document.body) getCurrentSyncKeys().forEach(key => store.put({ pageID: key, highlights }));
         if (container.closest('.tooltip, .tooltipContainer')) {
             const link = container.querySelector('a.bibleCitation, a.publicationCitation, a.pub-');
-            if (link) { const href = link.getAttribute('href'); if (href) getAllSyncKeys(href).forEach(key => store.put({ pageID: key, highlights })); }
+            if (link) {
+                const href = link.getAttribute('href');
+                if (href) {
+                    const ar = extractArticleRef(href);
+                    if (ar) store.put({ pageID: 'tooltip_' + ar, highlights });
+                    store.put({ pageID: href.split('#')[0], highlights });
+                }
+            }
         }
     } else {
         store.delete(pageID);
@@ -772,12 +777,25 @@ function exportHighlights() {
         const filename = prompt(t('promptFilename'));
         if (!filename) return;
         const finalFilename = filename.endsWith('.json') ? filename : filename + '.json';
-        blob.text().then(text => {
-            const file = new File([text], finalFilename, { type: 'application/json' });
-            if (navigator.share) navigator.share({ files: [file], title: 'WOL Highlights Export' }).catch(() => {});
-        });
-        alert(t('exported', allData.length));
+        _downloadFile(blob, allData.length, finalFilename);
     };
+}
+function _downloadFile(blob, count, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url;
+    a.download = filename || `wol-highlights-${new Date().toISOString().split('T')[0]}.json`;
+    if (navigator.share && blob.size < 10485760) {
+        blob.text().then(text => {
+            const file = new File([text], a.download, { type: 'application/json' });
+            navigator.share({ files: [file], title: 'WOL Highlights Export', text: `Exported ${count} pages` })
+                .catch(() => _triggerDownload(a, url, count));
+        });
+    } else { _triggerDownload(a, url, count); }
+}
+function _triggerDownload(a, url, count) {
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+    alert(t('exported', count));
 }
 
 function importHighlights() {

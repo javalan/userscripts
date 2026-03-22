@@ -1,23 +1,21 @@
 // ==UserScript==
 // @name        WOL Highlighter
 // @namespace   https://wol.jw.org
-// @version     1.2
+// @version     1.0
 // @description 4-colour highlighter for iOS/iPadOS — save, restore, export/import
 // @match       https://wol.jw.org/*
 // @run-at      document-end
 // @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/highlighter.js
 // @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/highlighter.js
 // @grant       unsafeWindow
-// @grant       GM_xmlhttpRequest
-// @connect     cdn.jsdelivr.net
+// @require     https://raw.githubusercontent.com/javalan/userscripts/main/highlighter_version.js
 // ==/UserScript==
 (function () {
 
 // ─────────────────────────────────────────────────────────────
 // VERSION CHECK
 // ─────────────────────────────────────────────────────────────
-const CURRENT_VERSION = "1.2";
-const VERSION_URL = "https://apple.helioho.st/wol_highlighter.php";
+const CURRENT_VERSION = "1.0";
 
 function compareVersions(local, remote) {
     const l = local.split('.').map(Number);
@@ -29,6 +27,11 @@ function compareVersions(local, remote) {
     }
     return 0;
 }
+
+const _lang = (() => {
+    const l = (navigator.language || '').toLowerCase();
+    return l.startsWith('zh') ? 'zh' : 'en';
+})();
 
 function showUpdateToast(versionData) {
     if (localStorage.getItem('wol_hl_update_' + versionData.version)) return;
@@ -53,14 +56,9 @@ function showUpdateToast(versionData) {
     heading.style.cssText = 'font-weight:bold;font-size:16px;text-transform:uppercase;';
     textContainer.appendChild(heading);
 
-    const updateLabels = {
-        en: 'Update available 🔔',
-        zh: '有新版本 🔔',
-    };
-    const watchLabels = {
-        en: 'Watch Video',
-        zh: '观看视频',
-    };
+    const updateLabels = { en: 'Update available 🔔', zh: '有新版本 🔔' };
+    const watchLabels  = { en: '▶  How to update',   zh: '▶  查看更新方法' };
+
     const subheading = document.createElement('div');
     subheading.textContent = updateLabels[_lang] || updateLabels.en;
     subheading.style.cssText = 'font-weight:normal;font-size:14px;';
@@ -70,7 +68,9 @@ function showUpdateToast(versionData) {
     const videoBtn = document.createElement('button');
     videoBtn.textContent = watchLabels[_lang] || watchLabels.en;
     videoBtn.style.cssText = 'padding:10px 14px;background:#4a90e2;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:500;font-size:14px;align-self:center;';
-    videoBtn.onclick = () => window.open(versionData.install_video, '_blank');
+    videoBtn.onclick = () => {
+        if (versionData.install_video) window.open(versionData.install_video, '_blank');
+    };
     toast.appendChild(videoBtn);
 
     if (document.body) document.body.appendChild(toast);
@@ -82,31 +82,17 @@ function showUpdateToast(versionData) {
     });
 }
 
-window.addEventListener('load', () => {
-    GM_xmlhttpRequest({
-        method: 'GET',
-        url: VERSION_URL,
-        onload: (response) => {
-            try {
-                const data = JSON.parse(response.responseText);
-                if (compareVersions(CURRENT_VERSION, data.version) < 0) {
-                    showUpdateToast(data);
-                }
-            } catch(e) {
-                console.warn('WOL Highlighter: version parse failed:', e);
-            }
-        },
-        onerror: (e) => console.warn('WOL Highlighter: version fetch failed:', e)
-    });
-});
+(function checkVersion() {
+    if (!window.HIGHLIGHTER_VERSION) return;
+    const data = window.HIGHLIGHTER_VERSION;
+    if (compareVersions(CURRENT_VERSION, data.version) < 0) {
+        showUpdateToast(data);
+    }
+})();
 
 // ─────────────────────────────────────────────────────────────
 // i18n — EN / CHS
 // ─────────────────────────────────────────────────────────────
-const _lang = (() => {
-    const l = (navigator.language || '').toLowerCase();
-    return l.startsWith('zh') ? 'zh' : 'en';
-})();
 const T = {
     exportHL:         { en: '↑  Export highlights',        zh: '↑  导出高亮' },
     importHL:         { en: '↓  Import highlights',        zh: '↓  导入高亮' },

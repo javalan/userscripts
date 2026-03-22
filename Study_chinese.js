@@ -8,7 +8,7 @@
 // @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
 // @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
 // @grant        unsafeWindow
-// @require      https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese_version.js?ts=202603212
+// @require      https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese_version.js
 // ==/UserScript==
 
 // ─────────────────────────────────────────────────────────────
@@ -504,7 +504,7 @@ body.wol-study-mode:not(.wol-audio-active) #contextMenu { display: none !importa
     font-size: 14px; color: #1a1a1a;
 }
 #wol_mode_panel.pp-open { opacity: 1; transform: translateY(0) scale(1); }
-#wol_mode_panel .pp-section { padding: 7px 14px; }
+#wol_mode_panel .pp-section { padding: 7px 14px 18px 14px; }
 #wol_mode_panel .pp-divider { height: 1px; background: #e8e8e8; margin: -2px 0; }
 #wol_mode_panel .pp-section-title {
     font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em;
@@ -534,7 +534,7 @@ body.wol-study-mode:not(.wol-audio-active) #contextMenu { display: none !importa
 #wol_mode_panel .pp-btn.pp-danger:hover { background: #fff0f0; }
 #wol_mode_panel .pp-btn.pp-nav {
     background: #ebebeb; color: #1a1a1a; border-radius: 7px;
-    font-weight: 500; margin: 3px 14px; width: calc(100% - 28px); text-align: center;
+    font-weight: 500; margin: 10px 14px; width: calc(100% - 28px); text-align: center;
 }
 #wol_mode_panel .pp-btn.pp-nav:hover { background: #dcdcdc; }
 
@@ -771,7 +771,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                     wnSection.style.cssText = 'padding:0;overflow:hidden;max-height:0;transition:max-height 0.28s cubic-bezier(.4,0,.2,1),opacity 0.22s ease,padding 0.22s ease;opacity:0;';
 
                     const wnInner = document.createElement('div');
-                    wnInner.style.padding = '6px 0 8px 0';
+                    wnInner.style.padding = '6px 0 20px 0';
 
                     const wnTitle = document.createElement('div');
                     wnTitle.className = 'pp-section-title';
@@ -782,6 +782,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                     const wnBtn = document.createElement('button');
                     wnBtn.className = 'pp-btn pp-nav';
                     wnBtn.textContent = t('whatsNew');
+                    wnBtn.style.margin = '10px 14px 10px 14px';
                     wnBtn.addEventListener('click', () => {
                         hidePanel();
                         openFullscreenVideo('https://d1oegedfje2ody.cloudfront.net/video4_en.mp4');
@@ -800,7 +801,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                         if (expanded) {
                             wnDivider.style.maxHeight = '2px';
                             wnDivider.style.opacity = '1';
-                            wnSection.style.maxHeight = '80px';
+                            wnSection.style.maxHeight = '90px';
                             wnSection.style.opacity = '1';
                         } else {
                             wnDivider.style.maxHeight = '0';
@@ -1533,9 +1534,10 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     function enableStudyAudio() {
         document.body.classList.add('wol-audio-active');
         if (isIOS) document.body.classList.add('wol-player-visible');
-        // Clear any inline display:none so CSS class rule takes effect
         const cm = document.getElementById('contextMenu');
         if (cm) cm.style.removeProperty('display');
+        patchVerseLinksForAudio();
+        patchParLinksForAudio();
     }
     function disableStudyAudio() {
         document.body.classList.remove('wol-audio-active');
@@ -1543,6 +1545,38 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         const cm = document.getElementById('contextMenu');
         if (cm) cm.style.setProperty('display', 'none', 'important');
     }
+
+    function patchVerseLinksForAudio() {
+        if (!isIOS || !getPlaybackEnabled() || getMode() !== 'study') return;
+        document.querySelectorAll('a.vl.vx.vp, span.v a.vl').forEach(link => {
+            if (link.dataset.wolHrefPatched) return;
+            link.dataset.wolHrefPatched = 'true';
+            link.dataset.wolOrigHref = link.getAttribute('href') || '';
+            link.removeAttribute('href');
+            link.style.webkitUserSelect = 'none';
+            link.style.userSelect = 'none';
+            link.style.webkitTouchCallout = 'none';
+        });
+    }
+
+    function patchParLinksForAudio() {
+        if (!isIOS || !getPlaybackEnabled() || getMode() !== 'study') return;
+        document.querySelectorAll('span.parNum, [class*="parNum"], a[id^="p"], h1[data-pid], h2[data-pid], h3[data-pid], h4[data-pid], p.qu strong:first-child').forEach(el => {
+            if (el.dataset.wolParPatched) return;
+            el.dataset.wolParPatched = 'true';
+            el.style.webkitUserSelect = 'none';
+            el.style.userSelect = 'none';
+            el.style.webkitTouchCallout = 'none';
+            if (el.matches('span.parNum, [class*="parNum"], p.qu strong:first-child')) {
+                el.style.padding = '8px 20px 8px 0';
+                el.style.margin = '-8px -20px -8px 0';
+                el.style.display = 'inline-block';
+            }
+        });
+    }
+
+    new MutationObserver(() => patchParLinksForAudio())
+    .observe(document.body, { childList: true, subtree: true });
 
     // Capture-phase mousedown+touchstart: enable audio on par tap BEFORE WOL's handler.
     // Using mousedown ensures wol-audio-active is set before WOL shows contextMenu.
@@ -1564,34 +1598,102 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             // Otherwise it's a workbook item heading starting with a number label — match
             return heading;
         }
-        return e.target.closest('a[id^="p"], .parNum, [class*="parNum"]');
+        return e.target.closest('a[id^="p"], .parNum, [class*="parNum"], p.qu > strong:first-child');
     }
 
-    // Click handler: reposition contextMenu on iOS after WOL shows it (only when audio enabled).
-    document.addEventListener('click', (e) => {
-        if (getMode() !== 'study') return;
-        if (!getPlaybackEnabled()) return;
-        const parLink = _parLinkFromEvent(e);
-        if (!parLink) return;
-        if (isIOS) {
-            const target = parLink;
-            const repoObs = new MutationObserver(() => {
-                const cm = document.getElementById('contextMenu');
-                if (!cm || window.getComputedStyle(cm).display === 'none') return;
-                repoObs.disconnect();
-                const r = target.getBoundingClientRect();
-                const cmH = cm.offsetHeight || 44;
-                cm.style.position = 'fixed';
-                cm.style.top  = Math.max(r.top - cmH - 4, 4) + 'px';
-                cm.style.left = Math.min(r.left, window.innerWidth - cm.offsetWidth - 4) + 'px';
-                cm.style.bottom = '';
-            });
-            repoObs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] });
-            setTimeout(() => repoObs.disconnect(), 1000);
-        }
-    }, { capture: true });
+    if (isIOS) {
+        // ── Prevent question box collapse on touch ──
+        document.addEventListener('touchstart', (e) => {
+            if (getMode() !== 'study') return;
+            if (e.target.closest('.tooltip, .tooltipContainer')) return;
+            const qu = e.target.closest('p.qu[data-pid]');
+            if (!qu) return;
+            if (e.target.closest('ruby, rb, rt, .wol-char-wrap')) return;
+            e.stopImmediatePropagation();
+        }, { capture: true, passive: false });
 
+        let _verseLongPressTimer = null;
+        let _verseTouchMoved = false;
+        let _verseLongPressFired = false;
+        let _parLongPressTimer = null;
+        let _parTouchMoved = false;
+        let _parLongPressFired = false;
 
+        document.addEventListener('touchstart', (e) => {
+            if (getMode() !== 'study') return;
+            if (!getPlaybackEnabled()) return;
+            const verseLink = e.target.closest('a.vl.vx.vp, span.v a.vl');
+            if (verseLink) {
+                _verseTouchMoved = false;
+                _verseLongPressFired = false;
+                _verseLongPressTimer = setTimeout(() => {
+                    _verseLongPressTimer = null;
+                    if (_verseTouchMoved) return;
+                    _verseLongPressFired = true;
+                    enableStudyAudio();
+                    const verseSpan = verseLink.closest('span.v');
+                    if (verseSpan) {
+                        const rect = verseSpan.getBoundingClientRect();
+                        verseSpan.dispatchEvent(new MouseEvent('click', {
+                            bubbles: true, cancelable: true,
+                            clientX: rect.left + rect.width / 2,
+                            clientY: rect.top + rect.height / 2,
+                            view: window
+                        }));
+                    }
+                }, 400);
+                return;
+            }
+            const parLink = _parLinkFromEvent(e);
+            if (parLink) {
+                _parTouchMoved = false;
+                _parLongPressFired = false;
+                _parLongPressTimer = setTimeout(() => {
+                    _parLongPressTimer = null;
+                    if (_parTouchMoved) return;
+                    _parLongPressFired = true;
+                    enableStudyAudio();
+                    const rect = parLink.getBoundingClientRect();
+                    parLink.dispatchEvent(new MouseEvent('click', {
+                        bubbles: true, cancelable: true,
+                        clientX: rect.left + 5,
+                        clientY: rect.top + 5,
+                        view: window
+                    }));
+                }, 250);
+            }
+        }, { capture: true, passive: true });
+
+        document.addEventListener('touchmove', () => {
+            _verseTouchMoved = true;
+            if (_verseLongPressTimer) { clearTimeout(_verseLongPressTimer); _verseLongPressTimer = null; }
+            _parTouchMoved = true;
+            if (_parLongPressTimer) { clearTimeout(_parLongPressTimer); _parLongPressTimer = null; }
+        }, { capture: true, passive: true });
+
+        document.addEventListener('touchend', (e) => {
+            if (_verseLongPressTimer) { clearTimeout(_verseLongPressTimer); _verseLongPressTimer = null; }
+            if (_verseLongPressFired) {
+                _verseLongPressFired = false;
+                const verseLink = e.target.closest('a.vl.vx.vp, span.v a.vl');
+                if (verseLink) { e.preventDefault(); e.stopImmediatePropagation(); }
+            }
+            if (_parLongPressTimer) { clearTimeout(_parLongPressTimer); _parLongPressTimer = null; }
+            if (_parLongPressFired) {
+                _parLongPressFired = false;
+                if (_parLinkFromEvent(e)) { e.preventDefault(); e.stopImmediatePropagation(); }
+            }
+        }, { capture: true, passive: false });
+
+        document.addEventListener('contextmenu', (e) => {
+            if (getMode() !== 'study') return;
+            if (!getPlaybackEnabled()) return;
+            if (e.target.closest('a.vl.vx.vp, span.v a.vl')) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+            }
+        }, { capture: true, passive: false });
+    }
 
     // ── Study icon SVG ──
     const STUDY_SVG = `<svg width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
@@ -1979,7 +2081,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         if (!qu) return false;
         // Only pinyin elements are interactive — everything else (including par number
         // links) should suppress WOL's qu collapse handler.
-        return !e.target.closest('ruby, rb, rt, .wol-char-wrap, strong');
+        return !e.target.closest('ruby, rb, rt, .wol-char-wrap');
     }
     let _quTouchStartY = 0;
     document.addEventListener('touchstart', (e) => {
@@ -3018,28 +3120,50 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     }
 
     function buildHighlightIconBtn() {
-        if (document.getElementById('wol_hl_icon_btn')) return;
-        const menuBar = document.getElementById('menuBar');
-        if (!menuBar) return;
-        const li = document.createElement('li');
-        li.id = 'wol_hl_icon_li'; li.className = 'chrome menuButton';
-        const btn = document.createElement('div');
-        btn.id = 'wol_hl_icon_btn'; btn.innerHTML = HL_SVG; btn.title = 'Tap: toggle highlighter  |  Long-press: export/import/clear';
-        function onTap() {
+    if (document.getElementById('wol_hl_icon_btn')) return;
+    const menuBar = document.getElementById('menuBar');
+    if (!menuBar) return;
+    const li = document.createElement('li');
+    li.id = 'wol_hl_icon_li'; li.className = 'chrome menuButton';
+    const btn = document.createElement('div');
+    btn.id = 'wol_hl_icon_btn'; btn.innerHTML = HL_SVG; btn.title = 'Tap: toggle highlighter  |  Long-press: export/import/clear';
+
+    function onTap() {
+            // If panel is open, close it first, leave palette as is
+            const panel = document.getElementById('wol_mode_panel');
+            if (panel && panel.classList.contains('pp-open')) { hidePanel(); return; }
+            // Otherwise toggle palette
             if (document.getElementById('wol_hl_float_palette')) hideFloatingPalette();
-            else { showFloatingPalette(); }
+            else showFloatingPalette();
         }
+
         let hlIconLongPressTimer = null, hlIconLongPressed = false;
         btn.addEventListener('mousedown', e => {
             if (e.button !== 0) return;
             hlIconLongPressed = false;
-            hlIconLongPressTimer = setTimeout(() => { hlIconLongPressed = true; hideFloatingPalette(); showPanel(btn, buildHighlightExtrasPanel, true); }, 500);
+            hlIconLongPressTimer = setTimeout(() => {
+                hlIconLongPressed = true;
+                hideFloatingPalette();
+                const panel = document.getElementById('wol_mode_panel');
+                if (panel && panel.classList.contains('pp-open')) hidePanel();
+                else showPanel(btn, buildHighlightExtrasPanel, true);
+            }, 500);
         });
         btn.addEventListener('mouseup', () => { if (hlIconLongPressTimer) { clearTimeout(hlIconLongPressTimer); hlIconLongPressTimer = null; } });
         btn.addEventListener('mouseleave', () => { if (hlIconLongPressTimer) { clearTimeout(hlIconLongPressTimer); hlIconLongPressTimer = null; } });
         btn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); if (hlIconLongPressed) { hlIconLongPressed = false; return; } onTap(); });
+
         let hlTouchLong = false;
-        btn.addEventListener('touchstart', () => { hlTouchLong = false; hlIconLongPressTimer = setTimeout(() => { hlTouchLong = true; hideFloatingPalette(); showPanel(btn, buildHighlightExtrasPanel, true); }, 500); }, { passive: true });
+        btn.addEventListener('touchstart', () => {
+            hlTouchLong = false;
+            hlIconLongPressTimer = setTimeout(() => {
+                hlTouchLong = true;
+                hideFloatingPalette();
+                const panel = document.getElementById('wol_mode_panel');
+                if (panel && panel.classList.contains('pp-open')) hidePanel();
+                else showPanel(btn, buildHighlightExtrasPanel, true);
+            }, 500);
+        }, { passive: true });
         btn.addEventListener('touchmove', () => { if (hlIconLongPressTimer) { clearTimeout(hlIconLongPressTimer); hlIconLongPressTimer = null; } }, { passive: true });
         btn.addEventListener('touchend', e => {
             if (hlIconLongPressTimer) { clearTimeout(hlIconLongPressTimer); hlIconLongPressTimer = null; }
@@ -3569,25 +3693,25 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
 
     // ── Sync panel extras (appended to showPanel) ──
     function buildSyncExtras(panel) {
-        const syncSection = document.createElement('div'); syncSection.className = 'pp-section';
-        const syncTitle = document.createElement('div'); syncTitle.className = 'pp-section-title';
-        syncTitle.textContent = t('syncTitle'); syncSection.appendChild(syncTitle);
-        let pinyinTrack = null;
-        syncSection.appendChild(makeToggleRow(CURRENT_LANG_CONFIG.label, STORAGE_KEY_ENG_CHS_SYNC, true, (newState) => {
-            if (!newState && pinyinTrack) { localStorage.setItem(STORAGE_KEY_PINYIN, 'false'); pinyinTrack.classList.remove('on'); }
-        }));
-        panel.appendChild(syncSection);
-        if (isEnglishPage() && !isChinesePage() && isSyncEnabledPage()) {
-            const d2 = document.createElement('div'); d2.className = 'pp-divider'; panel.appendChild(d2);
-            const pinyinSection = document.createElement('div'); pinyinSection.className = 'pp-section';
-            const row = makeToggleRow(t('syncPinyin'), STORAGE_KEY_PINYIN, false);
-            pinyinTrack = row.querySelector('.pp-toggle-track');
-            pinyinSection.appendChild(row); panel.appendChild(pinyinSection);
+            const syncSection = document.createElement('div'); syncSection.className = 'pp-section';
+            const syncTitle = document.createElement('div'); syncTitle.className = 'pp-section-title';
+            syncTitle.textContent = t('syncTitle'); syncSection.appendChild(syncTitle);
+            let pinyinTrack = null;
+            syncSection.appendChild(makeToggleRow(CURRENT_LANG_CONFIG.label, STORAGE_KEY_ENG_CHS_SYNC, true, (newState) => {
+                if (!newState && pinyinTrack) { localStorage.setItem(STORAGE_KEY_PINYIN, 'false'); pinyinTrack.classList.remove('on'); }
+            }));
+            panel.appendChild(syncSection);
+            if (isEnglishPage() && !isChinesePage() && isSyncEnabledPage()) {
+                const d2 = document.createElement('div'); d2.className = 'pp-divider'; panel.appendChild(d2);
+                const pinyinSection = document.createElement('div'); pinyinSection.className = 'pp-section';
+                const row = makeToggleRow(t('syncPinyin'), STORAGE_KEY_PINYIN, false);
+                pinyinTrack = row.querySelector('.pp-toggle-track');
+                pinyinSection.appendChild(row); panel.appendChild(pinyinSection);
+            }
         }
-    }
 
-    // ── Attach long-press to sync button ──
-    function attachSyncButton() {
+        // ── Attach long-press to sync button ──
+        function attachSyncButton() {
         const btn = document.getElementById('menuSynchronizeSwitch');
         if (!btn || btn.dataset.longPressAttached) return;
         btn.style.webkitTouchCallout = 'none'; btn.style.webkitUserSelect = 'none';
@@ -3596,7 +3720,9 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         function clearTimer() { if (timer) { clearTimeout(timer); timer = null; } }
         function triggerLongPress() {
             longPressTriggered = true;
-            showPanel(btn, buildSyncExtras, true);
+            const panel = document.getElementById('wol_mode_panel');
+            if (panel && panel.classList.contains('pp-open')) hidePanel();
+            else showPanel(btn, buildSyncExtras, true);
         }
         btn.addEventListener('mousedown', () => { if (touchActive) return; longPressTriggered = false; timer = setTimeout(triggerLongPress, DELAY); });
         btn.addEventListener('mouseup', () => { if (touchActive) return; clearTimer(); });
@@ -3628,7 +3754,6 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         btn.addEventListener('contextmenu', (e) => e.preventDefault(), true);
         btn.dataset.longPressAttached = 'true';
     }
-
     // ── Verse highlight ──
     setTimeout(() => {
         if (window.innerWidth < 768) {
@@ -3885,7 +4010,6 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     }
 
     function buildMenuHome() {
-        // Also attach to #siteBanner .title (iPad single-page layout)
         const siteBannerTitle = document.querySelector('#siteBanner .title');
         if (siteBannerTitle) _buildSiteBannerHome(siteBannerTitle);
         const menuHome = document.getElementById('menuHome');
@@ -3893,9 +4017,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         const mode = getMode();
 
         if (mode === 'study') {
-            // ── Study mode: 字 icon, tap opens panel ──
-            if (menuHome.querySelector('#wol_study_icon_btn') && !menuHome.querySelector('a')) return; // already correct
-            // Reset siteBanner so it rebuilds correctly for this mode
+            if (menuHome.querySelector('#wol_study_icon_btn') && !menuHome.querySelector('a')) return;
             const sbt = document.querySelector('#siteBanner .title');
             if (sbt) { sbt.dataset.wolReady = ''; }
             pauseIconObserver();
@@ -3905,32 +4027,30 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             iconBtn.id = 'wol_study_icon_btn';
             iconBtn.innerHTML = STUDY_SVG;
             iconBtn.title = 'Study options';
-            // Single tap → panel (no navigation, no long-press distinction needed)
             iconBtn.addEventListener('click', (e) => {
                 e.preventDefault(); e.stopPropagation();
-                showPanel(iconBtn, buildStudyExtras);
+                const panel = document.getElementById('wol_mode_panel');
+                if (panel && panel.classList.contains('pp-open')) hidePanel();
+                else showPanel(iconBtn, buildStudyExtras);
             }, true);
             iconBtn.addEventListener('touchend', (e) => {
                 e.preventDefault(); e.stopPropagation();
-                showPanel(iconBtn, buildStudyExtras);
+                const panel = document.getElementById('wol_mode_panel');
+                if (panel && panel.classList.contains('pp-open')) hidePanel();
+                else showPanel(iconBtn, buildStudyExtras);
             }, { capture: true, passive: false });
             menuHome.appendChild(iconBtn);
             resumeIconObserver();
         } else {
-            // ── Default mode: home icon, single tap opens panel ──
             if (menuHome.dataset.wolMenuHomeReady === 'true' && menuHome.querySelector('a') && !menuHome.querySelector('#wol_study_icon_btn')) return;
 
-            // Reset siteBanner for default mode
             const sbt2 = document.querySelector('#siteBanner .title');
             if (sbt2) sbt2.dataset.wolReady = '';
 
-            // Always wipe the slate clean first — removes the study icon if present,
-            // preventing the brief double-icon flash during the sync redirect delay.
             pauseIconObserver();
             menuHome.dataset.wolMenuHomeReady = '';
             while (menuHome.firstChild) menuHome.removeChild(menuHome.firstChild);
 
-            // Build fresh home anchor
             const a = document.createElement('a');
             a.setAttribute('aria-label','home');
             const span = document.createElement('span'); span.className = 'icon';
@@ -3944,18 +4064,17 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             menuHome.style.webkitUserSelect = 'none';
             menuHome.style.userSelect = 'none';
 
-            // Strip href from the anchor so WOL won't navigate on click
             const homeAnchor = menuHome.querySelector('a');
             if (homeAnchor) { homeAnchor.removeAttribute('href'); homeAnchor.style.cursor = 'pointer'; }
 
-            // Mouse: single click opens panel
             menuHome.addEventListener('click', (e) => {
                 e.preventDefault(); e.stopPropagation();
-                showPanel(menuHome);
+                const panel = document.getElementById('wol_mode_panel');
+                if (panel && panel.classList.contains('pp-open')) hidePanel();
+                else showPanel(menuHome);
             });
             menuHome.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); }, true);
 
-            // Touch: single tap opens panel, no long-press distinction needed
             let touchMoved = false, touchStartX = 0, touchStartY = 0;
             menuHome.addEventListener('touchstart', (e) => {
                 touchMoved = false;
@@ -3968,7 +4087,9 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             menuHome.addEventListener('touchend', (e) => {
                 if (touchMoved) return;
                 e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
-                showPanel(menuHome);
+                const panel = document.getElementById('wol_mode_panel');
+                if (panel && panel.classList.contains('pp-open')) hidePanel();
+                else showPanel(menuHome);
             }, { passive: false });
         }
     }
@@ -4030,12 +4151,16 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             buildMenuHome();
             document.addEventListener('contextmenu', blockContextMenu, true);
         // If playback was already enabled, activate study audio immediately
-        if (getPlaybackEnabled()) enableStudyAudio();
+        if (getPlaybackEnabled()) {
+            enableStudyAudio();
+            patchParLinksForAudio();
+        }
             installBannerBlock();
             installSelectStartBlock();
             applyCompact();
             attachClickHandlers();
             applyInitialState();
+            if (getPlaybackEnabled()) patchVerseLinksForAudio();
             if (!sessionStorage.getItem('wol_daily_text_redirect') && !sessionStorage.getItem('wol_watchtower_redirect')) {
                 if (!location.hash) setTimeout(restoreSavedHash, 600);
             }

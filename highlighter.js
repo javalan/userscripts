@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        WOL Highlighter
 // @namespace   https://wol.jw.org
-// @version     1.1
+// @version     1.0
 // @description 4-colour highlighter for iOS/iPadOS — save, restore, export/import
 // @match       https://wol.jw.org/*
 // @run-at      document-end
@@ -15,7 +15,7 @@
 // ─────────────────────────────────────────────────────────────
 // VERSION CHECK
 // ─────────────────────────────────────────────────────────────
-const CURRENT_VERSION = "1.1";
+const CURRENT_VERSION = "1.0";
 
 function compareVersions(local, remote) {
     const l = local.split('.').map(Number);
@@ -69,7 +69,7 @@ function showUpdateToast(versionData) {
     videoBtn.textContent = watchLabels[_lang] || watchLabels.en;
     videoBtn.style.cssText = 'padding:10px 14px;background:#4a90e2;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:500;font-size:14px;align-self:center;';
     videoBtn.onclick = () => {
-        if (versionData.install_video) window.open(versionData.install_video, '_blank');
+        if (versionData.install_video) openFullscreenVideo(versionData.install_video);
     };
     toast.appendChild(videoBtn);
 
@@ -79,6 +79,41 @@ function showUpdateToast(versionData) {
     requestAnimationFrame(() => {
         toast.style.transform = 'translateX(-50%) translateY(0)';
         toast.style.opacity = '1';
+    });
+}
+
+function openFullscreenVideo(videoURL) {
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:2147483647;display:flex;justify-content:center;align-items:center;flex-direction:column;';
+
+    const spinner = document.createElement('div');
+    spinner.style.cssText = 'width:50px;height:50px;border:5px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin 1s linear infinite;';
+    if (!document.getElementById('modal-spinner-style')) {
+        const style = document.createElement('style');
+        style.id = 'modal-spinner-style';
+        style.textContent = '@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}';
+        document.head.appendChild(style);
+    }
+    modal.appendChild(spinner);
+
+    const video = document.createElement('video');
+    video.src = videoURL;
+    video.controls = true;
+    video.autoplay = true;
+    video.setAttribute('playsinline', '');
+    video.style.cssText = 'width:100%;max-width:900px;display:none;border-radius:6px;';
+    modal.appendChild(video);
+
+    document.body.appendChild(modal);
+
+    const closeModal = () => { video.pause(); if (modal.parentNode) modal.remove(); };
+    video.addEventListener('webkitendfullscreen', closeModal);
+    modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+
+    video.addEventListener('loadedmetadata', () => {
+        spinner.style.display = 'none';
+        video.style.display = 'block';
+        if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
     });
 }
 

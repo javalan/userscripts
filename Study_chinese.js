@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WOL Unified (Pinyin · Highlighter · Sync · Question Boxes)
 // @namespace    wol-unified
-// @version      2.2
+// @version      2.0
 // @description  Study/pinyin mode, 3-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
@@ -31,7 +31,7 @@
 (function() {
     'use strict';
 
-    const CURRENT_VERSION = "2.2";
+    const CURRENT_VERSION = "2.0";
 
     function compareVersions(local, remote) {
         const l = local.split('.').map(Number);
@@ -2081,14 +2081,20 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         if (!qu) return false;
         // Only pinyin elements are interactive — everything else (including par number
         // links) should suppress WOL's qu collapse handler.
-        return !e.target.closest('ruby, rb, rt, .wol-char-wrap');
+        return !e.target.closest('ruby, rb, rt, .wol-char-wrap, a');
     }
     let _quTouchStartY = 0;
     document.addEventListener('touchstart', (e) => {
         if (!isNonInteractiveQuTap(e)) return;
-        if (e.target.closest('.tooltip, .tooltipContainer')) return;
-        _quTouchStartY = e.touches[0].clientY;
+        const link = e.target.closest('a');
+        if (link && !link.matches('a[id^="p"], .parNum, [class*="parNum"]')) {
+            // scripture or other non-par links inside .qu — don't interfere
+            return;
+        }
         e.stopImmediatePropagation();
+        if (!link) {
+            if (!document.getElementById('wol_hl_float_palette')) e.preventDefault();
+        }
     }, { capture: true, passive: false });
 
     document.addEventListener('touchmove', (e) => {
@@ -2104,8 +2110,16 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     document.addEventListener('click', (e) => {
         if (!isNonInteractiveQuTap(e)) return;
         if (e.target.closest('.tooltip, .tooltipContainer')) return;
-        e.stopImmediatePropagation(); e.preventDefault();
-        if (e.target.closest('a') && e.target.closest('a[id^="p"], .parNum, [class*="parNum"]')) enableStudyAudio();
+        e.stopImmediatePropagation();
+        const link = e.target.closest('a');
+        if (link && link.matches('a[id^="p"], .parNum, [class*="parNum"]')) {
+            e.preventDefault();
+            enableStudyAudio();
+        } else if (link) {
+            // scripture or other links — let them open naturally (tooltip etc.)
+        } else {
+            e.preventDefault();
+        }
     }, true);
 
     // ─────────────────────────────────────────────────────────────
@@ -2554,7 +2568,6 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             if (link) {
                 const href = link.getAttribute('href');
                 if (href) {
-                    const sr = extractScriptureRef(href); if (sr) return 'tooltip_' + sr;
                     const ar = extractArticleRef(href); if (ar) return 'tooltip_' + ar;
                     return 'tooltip_' + href.split('#')[0];
                 }
@@ -2575,16 +2588,13 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             if (link) {
                 const href = link.getAttribute('href');
                 if (href) {
-                    const sr = extractScriptureRef(href); if (sr) return sr;
                     const ar = extractArticleRef(href); if (ar) return ar;
                     return href.split('#')[0];
                 }
             }
         }
-        const sr = extractScriptureRef(window.location.pathname);
-        if (sr) return sr;
-        const ar = extractArticleRef(window.location.pathname);
-        if (ar) return ar;
+        const sr = extractScriptureRef(window.location.pathname); if (sr) return sr;
+        const ar = extractArticleRef(window.location.pathname); if (ar) return ar;
         return window.location.pathname + window.location.search;
     }
     function getCurrentSyncKeys() {
@@ -2653,7 +2663,14 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             if (container === document.body) getCurrentSyncKeys().forEach(key => store.put({ pageID: key, highlights }));
             if (container.closest('.tooltip, .tooltipContainer')) {
                 const link = container.querySelector('a.bibleCitation, a.publicationCitation, a.pub-');
-                if (link) { const href = link.getAttribute('href'); if (href) getAllSyncKeys(href).forEach(key => store.put({ pageID: key, highlights })); }
+                if (link) {
+                    const href = link.getAttribute('href');
+                    if (href) {
+                        const ar = extractArticleRef(href);
+                        if (ar) store.put({ pageID: 'tooltip_' + ar, highlights });
+                        store.put({ pageID: href.split('#')[0], highlights });
+                    }
+                }
             }
         } else {
             store.delete(pageID);
@@ -2661,7 +2678,14 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             if (container === document.body) getCurrentSyncKeys().forEach(key => store.delete(key));
             if (container.closest('.tooltip, .tooltipContainer')) {
                 const link = container.querySelector('a.bibleCitation, a.publicationCitation, a.pub-');
-                if (link) { const href = link.getAttribute('href'); if (href) getAllSyncKeys(href).forEach(key => store.delete(key)); }
+                if (link) {
+                    const href = link.getAttribute('href');
+                    if (href) {
+                        const ar = extractArticleRef(href);
+                        if (ar) store.delete('tooltip_' + ar);
+                        store.delete(href.split('#')[0]);
+                    }
+                }
             }
         }
     }
@@ -2674,6 +2698,17 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         let pageIDsToCheck = [pageID];
         if (baseRef && baseRef !== pageID) pageIDsToCheck.push(baseRef);
         if (container === document.body) pageIDsToCheck = pageIDsToCheck.concat(getCurrentSyncKeys());
+        // Also check raw pathname and tooltip-prefixed key so tooltip highlights
+        // restore when navigating directly to the Bible page
+        if (container === document.body) {
+            const rawPath = window.location.pathname;
+            if (!pageIDsToCheck.includes(rawPath)) pageIDsToCheck.push(rawPath);
+            const ar = extractArticleRef(rawPath);
+            if (ar) {
+                const tooltipKey = 'tooltip_' + ar;
+                if (!pageIDsToCheck.includes(tooltipKey)) pageIDsToCheck.push(tooltipKey);
+            }
+        }
         const transaction = db.transaction(['highlights'], 'readonly');
         const store = transaction.objectStore('highlights');
         const allHighlights = new Map();

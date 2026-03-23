@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WOL Unified (Pinyin · Highlighter · Sync · Question Boxes)
 // @namespace    wol-unified
-// @version      2.2
+// @version      2.0
 // @description  Study/pinyin mode, 3-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
@@ -31,7 +31,7 @@
 (function() {
     'use strict';
 
-    const CURRENT_VERSION = "2.2";
+    const CURRENT_VERSION = "2.0";
 
     function compareVersions(local, remote) {
         const l = local.split('.').map(Number);
@@ -294,17 +294,17 @@
     // ─────────────────────────────────────────────────────────────
     // 1. CONSTANTS & SHARED STATE
     // ─────────────────────────────────────────────────────────────
-    const MODE_KEY              = 'wol_app_mode';       // 'default' | 'study'
-    const HASH_KEY              = 'wol_last_hash';
-    const LEVEL_KEY             = 'pinyinLevel_global';
-    const COMPACT_KEY           = 'pinyinCompact_global';
-    const PLAYBACK_KEY          = 'wol_playback_focus_enabled';
-    const FONT_SIZE_KEY         = 'wol_remembered_font_size';
+    const MODE_KEY = 'wol_app_mode'; // 'default' | 'study'
+    const HASH_KEY = 'wol_last_hash';
+    const LEVEL_KEY = 'pinyinLevel_global';
+    const COMPACT_KEY = 'pinyinCompact_global';
+    const PLAYBACK_KEY = 'wol_playback_focus_enabled';
+    const FONT_SIZE_KEY = 'wol_remembered_font_size';
     const FONT_SIZE_REMEMBER_KEY = 'wol_remember_font_size_enabled';
     const STORAGE_KEY_REFERENCE = 'wol_reference_symbols_enabled';
-    const STORAGE_KEY_PINYIN    = 'wol_sync_pinyin_enabled';
+    const STORAGE_KEY_PINYIN = 'wol_sync_pinyin_enabled';
     const STORAGE_KEY_ENG_CHS_SYNC = 'wol_eng_chs_sync_enabled';
-    const PANEL_OPEN_GUARD_MS   = 600;
+    const PANEL_OPEN_GUARD_MS = 600;
 
     const safeWindow = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
 
@@ -340,7 +340,7 @@
     const PINYIN_STORAGE_KEY = getCanonicalArticleKey(location.pathname);
 
     let savedProgress = JSON.parse(localStorage.getItem(PINYIN_STORAGE_KEY) || '{}');
-    let level   = localStorage.getItem(LEVEL_KEY) || 'advanced';
+    let level = localStorage.getItem(LEVEL_KEY) || 'advanced';
     if (localStorage.getItem(COMPACT_KEY) === 'true' && level === 'advanced') {
         level = 'compact';
         localStorage.setItem(LEVEL_KEY, 'compact');
@@ -351,65 +351,60 @@
     // IndexedDB — shared by highlighter and pinyin export/import
     let db = null;
 
-    function getMode()  { return localStorage.getItem(MODE_KEY) || 'default'; }
+    function getMode() { return localStorage.getItem(MODE_KEY) || 'default'; }
     function setMode(m) { localStorage.setItem(MODE_KEY, m); }
-    function getPlaybackEnabled()      { return localStorage.getItem(PLAYBACK_KEY) === 'true'; }
-    function setPlaybackEnabled(v)     { localStorage.setItem(PLAYBACK_KEY, v ? 'true' : 'false'); }
+    function getPlaybackEnabled() { return localStorage.getItem(PLAYBACK_KEY) === 'true'; }
+    function setPlaybackEnabled(v) { localStorage.setItem(PLAYBACK_KEY, v ? 'true' : 'false'); }
 
-    const T = {
-        // Toasts
-        studyMode:        { en: 'Preparing study mode…',    ko: '학습 모드 준비 중…',           ja: '学習モードを準備中…',         es: 'Preparando modo de estudio…' },
-        regularMode:      { en: 'Switching to regular mode…', ko: '일반 모드로 전환 중…',       ja: 'レギュラーモードに切替中…',    es: 'Cambiando a modo regular…' },
-        dailyText:        { en: 'Preparing daily text…',    ko: '오늘의 성구 준비 중…',          ja: 'テキストを準備中…',            es: 'Preparando texto del día…' },
-        watchtower:       { en: 'Preparing Watchtower…',    ko: '파수대 준비 중…',               ja: '塔の見張り準備中…',            es: 'Preparando La Atalaya…' },
-        // Panel labels
-        modeTitle:        { en: 'Mode',                     ko: '모드',                          ja: 'モード',                      es: 'Modo' },
-        modeRegular:      { en: 'Regular',                  ko: '일반',                          ja: 'レギュラー',                   es: 'Regular' },
-        modeStudy:        { en: 'Study 汉字',               ko: '학습 汉字',                     ja: '学習 汉字',                    es: 'Estudio 汉字' },
-        levelTitle:       { en: 'Level',                    ko: '레벨',                          ja: 'レベル',                      es: 'Nivel' },
-        levelBeginner:    { en: 'Beginner',                 ko: '초급',                          ja: '初級',                        es: 'Principiante' },
-        levelAdvanced:    { en: 'Advanced',                 ko: '고급',                          ja: '上級',                        es: 'Avanzado' },
-        levelCompact:     { en: 'Compact',                  ko: '컴팩트',                        ja: 'コンパクト',                   es: 'Compacto' },
-        quickLinks:       { en: 'Quick Links',              ko: '빠른 링크',                     ja: 'クイックリンク',               es: 'Accesos rápidos' },
-        navDailyText:     { en: 'Daily Text',               ko: '오늘의 성구',                   ja: 'デイリーテキスト',             es: 'Texto del día' },
-        navWatchtower:    { en: 'Watchtower',               ko: '파수대',                        ja: '塔の見張り',                   es: 'La Atalaya' },
-        syncTitle:        { en: 'Direct Sync',              ko: '직접 동기화',                   ja: 'ダイレクト同期',               es: 'Sincronización directa' },
-        syncPinyin:       { en: 'Sync Pinyin',              ko: '병음 동기화',                   ja: 'ピンイン同期',                 es: 'Sincronizar Pinyin' },
-        playback:         { en: 'Inline audio playback',    ko: '인라인 오디오 재생',             ja: 'インライン音声再生',           es: 'Reproducción de audio' },
-        // Pinyin actions
-        resetPage:        { en: '↺  Reset pinyin this page',      ko: '↺  이 페이지 병음 초기화',      ja: '↺  このページのピンインをリセット', es: '↺  Restablecer pinyin esta página' },
-        resetAll:         { en: '⚠  Reset pinyin ALL pages',      ko: '⚠  모든 페이지 병음 초기화',    ja: '⚠  全ページのピンインをリセット',  es: '⚠  Restablecer pinyin todas las páginas' },
-        inclHighlights:   { en: 'Include highlights',             ko: '형광펜 포함',                   ja: 'ハイライトも含む',                es: 'Incluir marcados' },
-        exportPinyin:     { en: '↑  Export pinyin + highlights',  ko: '↑  병음 + 형광펜 내보내기',     ja: '↑  ピンイン＋ハイライトを書き出す', es: '↑  Exportar pinyin + marcados' },
-        importPinyin:     { en: '↓  Import pinyin + highlights',  ko: '↓  병음 + 형광펜 가져오기',     ja: '↓  ピンイン＋ハイライトを読み込む', es: '↓  Importar pinyin + marcados' },
-        // Highlight actions
-        exportHL:         { en: '↑  Export highlights',           ko: '↑  형광펜 내보내기',            ja: '↑  ハイライトを書き出す',          es: '↑  Exportar marcados' },
-        importHL:         { en: '↓  Import highlights',           ko: '↓  형광펜 가져오기',            ja: '↓  ハイライトを読み込む',          es: '↓  Importar marcados' },
-        clearHL:          { en: '🗑  Clear all highlights',        ko: '🗑  모든 형광펜 지우기',        ja: '🗑  ハイライトをすべて消去',        es: '🗑  Borrar todos los marcados' },
-        // Confirms & alerts
-        confirmResetPage: { en: 'Reset pinyin progress for this article?',           ko: '이 글의 병음 학습을 초기화할까요?',            ja: 'この記事のピンイン進捗をリセットしますか？',   es: '¿Restablecer el progreso de pinyin de este artículo?' },
+const T = {
+        studyMode:        { en: 'Preparing study mode…', ko: '학습 모드 준비 중…', ja: '学習モードを準備中…', es: 'Preparando modo de estudio…' },
+        regularMode:      { en: 'Switching to regular mode…', ko: '일반 모드로 전환 중…', ja: 'レギュラーモードに切替中…', es: 'Cambiando a modo regular…' },
+        dailyText:        { en: 'Preparing daily text…', ko: '오늘의 성구 준비 중…', ja: 'テキストを準備中…', es: 'Preparando texto del día…' },
+        watchtower:       { en: 'Preparing Watchtower…', ko: '파수대 준비 중…', ja: '塔の見張り準備中…', es: 'Preparando La Atalaya…' },
+        modeTitle:        { en: 'Mode', ko: '모드', ja: 'モード', es: 'Modo' },
+        modeRegular:      { en: 'Regular', ko: '일반', ja: 'レギュラー', es: 'Regular' },
+        modeStudy:        { en: 'Study 汉字', ko: '학습 汉字', ja: '学習 汉字', es: 'Estudio 汉字' },
+        levelTitle:       { en: 'Level', ko: '레벨', ja: 'レベル', es: 'Nivel' },
+        levelBeginner:    { en: 'Beginner', ko: '초급', ja: '初級', es: 'Principiante' },
+        levelAdvanced:    { en: 'Advanced', ko: '고급', ja: '上級', es: 'Avanzado' },
+        levelCompact:     { en: 'Compact', ko: '컴팩트', ja: 'コンパクト', es: 'Compacto' },
+        quickLinks:       { en: 'Quick Links', ko: '빠른 링크', ja: 'クイックリンク', es: 'Accesos rápidos' },
+        navDailyText:     { en: 'Daily Text', ko: '오늘의 성구', ja: 'デイリーテキスト', es: 'Texto del día' },
+        navWatchtower:    { en: 'Watchtower', ko: '파수대', ja: '塔の見張り', es: 'La Atalaya' },
+        syncTitle:        { en: 'Direct Sync', ko: '직접 동기화', ja: 'ダイレクト同期', es: 'Sincronización directa' },
+        syncPinyin:       { en: 'Sync Pinyin', ko: '병음 동기화', ja: 'ピンイン同期', es: 'Sincronizar Pinyin' },
+        playback:         { en: 'Inline audio playback', ko: '인라인 오디오 재생', ja: 'インライン音声再生', es: 'Reproducción de audio' },
+        resetPage:        { en: '↺  Reset pinyin this page', ko: '↺  이 페이지 병음 초기화', ja: '↺  このページのピンインをリセット', es: '↺  Restablecer pinyin esta página' },
+        resetAll:         { en: '⚠  Reset pinyin ALL pages', ko: '⚠  모든 페이지 병음 초기화', ja: '⚠  全ページのピンインをリセット', es: '⚠  Restablecer pinyin todas las páginas' },
+        inclHighlights:   { en: 'Include highlights', ko: '형광펜 포함', ja: 'ハイライトも含む', es: 'Incluir marcados' },
+        exportPinyin:     { en: '↑  Export pinyin + highlights', ko: '↑  병음 + 형광펜 내보내기', ja: '↑  ピンイン＋ハイライトを書き出す', es: '↑  Exportar pinyin + marcados' },
+        importPinyin:     { en: '↓  Import pinyin + highlights', ko: '↓  병음 + 형광펜 가져오기', ja: '↓  ピンイン＋ハイライトを読み込む', es: '↓  Importar pinyin + marcados' },
+        exportHL:         { en: '↑  Export highlights', ko: '↑  형광펜 내보내기', ja: '↑  ハイライトを書き出す', es: '↑  Exportar marcados' },
+        importHL:         { en: '↓  Import highlights', ko: '↓  형광펜 가져오기', ja: '↓  ハイライトを読み込む', es: '↓  Importar marcados' },
+        clearHL:          { en: '🗑  Clear all highlights', ko: '🗑  모든 형광펜 지우기', ja: '🗑  ハイライトをすべて消去', es: '🗑  Borrar todos los marcados' },
+        confirmResetPage: { en: 'Reset pinyin progress for this article?', ko: '이 글의 병음 학습을 초기화할까요?', ja: 'この記事のピンイン進捗をリセットしますか？', es: '¿Restablecer el progreso de pinyin de este artículo?' },
         confirmResetAll:  { en: 'Delete pinyin progress for ALL articles? This cannot be undone.', ko: '모든 글의 병음 학습을 삭제할까요? 되돌릴 수 없습니다.', ja: 'すべての記事のピンイン進捗を削除しますか？この操作は元に戻せません。', es: '¿Eliminar el progreso de pinyin de TODOS los artículos? Esta acción no se puede deshacer.' },
         confirmResetHL:   { en: 'Also delete ALL highlights? This cannot be undone.', ko: '모든 형광펜도 삭제할까요? 되돌릴 수 없습니다.', ja: 'ハイライトもすべて削除しますか？この操作は元に戻せません。', es: '¿Eliminar también TODOS los marcados? Esta acción no se puede deshacer.' },
-        confirmClearHL:   { en: 'Delete all highlights?',         ko: '모든 형광펜을 삭제할까요?',     ja: 'ハイライトをすべて削除しますか？',  es: '¿Eliminar todos los marcados?' },
-        promptExportName: { en: 'Enter a file name for the export:', ko: '내보낼 파일 이름을 입력하세요:', ja: 'ファイル名を入力してください：',  es: 'Introduce un nombre para el archivo:' },
-        promptExportHL:   { en: 'Enter filename for export:',     ko: '내보낼 파일 이름:',             ja: 'ファイル名を入力：',               es: 'Nombre del archivo de exportación:' },
-        noExportData:     { en: 'No pinyin or highlights to export.', ko: '내보낼 병음이나 형광펜이 없습니다.', ja: '書き出すデータがありません。',   es: 'No hay pinyin ni marcados para exportar.' },
+        confirmClearHL:   { en: 'Delete all highlights?', ko: '모든 형광펜을 삭제할까요?', ja: 'ハイライトをすべて削除しますか？', es: '¿Eliminar todos los marcados?' },
+        promptExportName: { en: 'Enter a file name for the export:', ko: '내보낼 파일 이름을 입력하세요:', ja: 'ファイル名を入力してください：', es: 'Introduce un nombre para el archivo:' },
+        promptExportHL:   { en: 'Enter filename for export:', ko: '내보낼 파일 이름:', ja: 'ファイル名を入力：', es: 'Nombre del archivo de exportación:' },
+        noExportData:     { en: 'No pinyin or highlights to export.', ko: '내보낼 병음이나 형광펜이 없습니다.', ja: '書き出すデータがありません。', es: 'No hay pinyin ni marcados para exportar.' },
         exportedHL:       { en: (n) => `Exported ${n} page${n===1?'':'s'} with highlights`, ko: (n) => `형광펜 ${n}페이지 내보내기 완료`, ja: (n) => `${n}ページのハイライトを書き出しました`, es: (n) => `${n} página${n===1?'':'s'} exportada${n===1?'':'s'}` },
         importedHL:       { en: (n,e) => `Imported ${n} pages${e>0?` (${e} errors)`:''}`, ko: (n,e) => `${n}페이지 가져오기 완료${e>0?` (오류 ${e}건)`:''}`, ja: (n,e) => `${n}ページを読み込みました${e>0?`（エラー${e}件）`:''}`, es: (n,e) => `${n} páginas importadas${e>0?` (${e} errores)`:''}` },
-        allHLCleared:     { en: 'All highlights cleared',         ko: '모든 형광펜을 지웠습니다',      ja: 'ハイライトをすべて消去しました',   es: 'Todos los marcados eliminados' },
-        importSuccess:    { en: 'Import successful.',             ko: '가져오기가 완료되었습니다.',    ja: '読み込みが完了しました。',          es: 'Importación completada.' },
-        invalidJSON:      { en: 'Invalid JSON file.',             ko: '잘못된 JSON 파일입니다.',       ja: '無効なJSONファイルです。',          es: 'Archivo JSON no válido.' },
-        dbNotReady:       { en: 'Database not ready',             ko: '데이터베이스 준비 중',          ja: 'データベース準備中',                es: 'Base de datos no lista' },
-        noHLExport:       { en: 'No highlights to export',        ko: '내보낼 형광펜이 없습니다',      ja: '書き出すハイライトがありません',    es: 'No hay marcados para exportar' },
-        invalidFormat:    { en: 'Invalid file format',            ko: '잘못된 파일 형식',              ja: '無効なファイル形式',                es: 'Formato de archivo no válido' },
+        allHLCleared:     { en: 'All highlights cleared', ko: '모든 형광펜을 지웠습니다', ja: 'ハイライトをすべて消去しました', es: 'Todos los marcados eliminados' },
+        importSuccess:    { en: 'Import successful.', ko: '가져오기가 완료되었습니다.', ja: '読み込みが完了しました。', es: 'Importación completada.' },
+        invalidJSON:      { en: 'Invalid JSON file.', ko: '잘못된 JSON 파일입니다.', ja: '無効なJSONファイルです。', es: 'Archivo JSON no válido.' },
+        dbNotReady:       { en: 'Database not ready', ko: '데이터베이스 준비 중', ja: 'データベース準備中', es: 'Base de datos no lista' },
+        noHLExport:       { en: 'No highlights to export', ko: '내보낼 형광펜이 없습니다', ja: '書き出すハイライトがありません', es: 'No hay marcados para exportar' },
+        invalidFormat:    { en: 'Invalid file format', ko: '잘못된 파일 형식', ja: '無効なファイル形式', es: 'Formato de archivo no válido' },
         pinyinFound:      { en: 'Pinyin progress found in this file — import it too?', ko: '이 파일에 병음 학습 데이터가 있습니다 — 함께 가져올까요?', ja: 'このファイルにピンインデータがあります — 一緒に読み込みますか？', es: '¿Este archivo contiene progreso de pinyin — importarlo también?' },
         speed:            { en: 'SPEED', ko: '속도', ja: 'スピード', es: 'VELOCIDAD' },
-        whatsNewTitle:    { en: 'How to use',     ko: '사용 방법',      ja: '使い方',         es: 'Cómo usarlo' },
-        whatsNew:         { en: '▶  Watch video', ko: '▶  동영상 보기', ja: '▶  動画を見る',  es: '▶  Ver video' },
-        selectFirst:      { en: 'Select text first',              ko: '먼저 텍스트를 선택하세요',      ja: 'テキストを先に選択してください',    es: 'Primero selecciona el texto' },
-        linkNotFound:     { en: 'Link not found on this page.',   ko: '이 페이지에서 링크를 찾을 수 없습니다.', ja: 'このページにリンクが見つかりません。', es: 'Enlace no encontrado en esta página.' },
+        whatsNewTitle:    { en: 'How to use', ko: '사용 방법', ja: '使い方', es: 'Cómo usarlo' },
+        whatsNew:         { en: '▶  Watch video', ko: '▶  동영상 보기', ja: '▶  動画を見る', es: '▶  Ver video' },
+        selectFirst:      { en: 'Select text first', ko: '먼저 텍스트를 선택하세요', ja: 'テキストを先に選択してください', es: 'Primero selecciona el texto' },
+        linkNotFound:     { en: 'Link not found on this page.', ko: '이 페이지에서 링크를 찾을 수 없습니다.', ja: 'このページにリンクが見つかりません。', es: 'Enlace no encontrado en esta página.' },
         noWatchtower:     { en: 'Could not find Watchtower link.', ko: '파수대 링크를 찾을 수 없습니다.', ja: '塔の見張りのリンクが見つかりません。', es: 'No se encontró el enlace de La Atalaya.' },
-        noDailyText:      { en: 'Could not find Daily Text link.', ko: '오늘의 성구 링크를 찾을 수 없습니다.', ja: 'テキストのリンクが見つかりません。', es: 'No se encontró el enlace del texto del día.' },
+        noDailyText:      { en: 'Could not find Daily Text link.', ko: '오늘의 성구 링크를 찾을 수 없습니다.', ja: 'テキストのリンクが見つかりません。', es: 'No se encontrado el enlace del texto del día.' },
     };
 
     // t(key, ...args) — look up translated string
@@ -785,7 +780,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                     wnBtn.style.margin = '10px 14px 10px 14px';
                     wnBtn.addEventListener('click', () => {
                         hidePanel();
-                        openFullscreenVideo('https://d1oegedfje2ody.cloudfront.net/video4_en.mp4');
+                        openFullscreenVideo('https://d1oegedfje2ody.cloudfront.net/Study_chinese.mp4');
                     });
                     wnInner.appendChild(wnBtn);
                     wnSection.appendChild(wnInner);
@@ -833,7 +828,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         if (left + pw > window.innerWidth) left = window.innerWidth - pw - 10;
         if (left < 10) left = 10;
         panel.style.left = left + 'px';
-        panel.style.top  = top  + 'px';
+        panel.style.top = top + 'px';
         panel.classList.add('pp-open');
         panel.onmouseleave = () => hidePanel();
     }
@@ -942,7 +937,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         } else {
             document.querySelectorAll('ruby').forEach((ruby) => {
                 const word = ruby.querySelector('rb')?.textContent;
-                const rt   = ruby.querySelector('rt');
+                const rt = ruby.querySelector('rt');
                 if (!word || !rt) return;
                 if (level === 'beginner') {
                     rt.style.opacity = !savedProgress[word] ? '1' : '0';
@@ -1930,7 +1925,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         if (getMode() !== 'study') return;
         if (tooltip.dataset.studyModeApplied) return;
         tooltip.dataset.studyModeApplied = 'true';
-        const tooltipProgress = Object.assign({}, savedProgress);
+        const tooltipProgress = savedProgress;
 
         if (compact) {
             tooltip.querySelectorAll('ruby').forEach(ruby => {
@@ -1950,7 +1945,9 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             });
             tooltip.querySelectorAll('.wol-char-wrap').forEach(wrap => {
                 const ch = wrap.getAttribute('data-char');
-                const pinned = ch && savedProgress[ch] === true;
+                const sy = wrap.getAttribute('data-syllable');
+                const compactKey = 'tooltip_compact_' + ch + '_' + sy;
+                const pinned = savedProgress[compactKey] === true;
                 wrap.classList.toggle('pinyin-pinned', pinned);
                 const p = wrap.querySelector('.wol-char-pinyin');
                 if (p) p.style.opacity = pinned ? '1' : '0';
@@ -1966,7 +1963,10 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                         if (fadeTimers.has(wrap)) { clearTimeout(fadeTimers.get(wrap)); fadeTimers.delete(wrap); }
                         const p2 = wrap.querySelector('.wol-char-pinyin');
                         wrap.classList.toggle('pinyin-pinned');
-                        if (p2) p2.style.opacity = wrap.classList.contains('pinyin-pinned') ? '1' : '0';
+                        const nowPinned = wrap.classList.contains('pinyin-pinned');
+                        if (p2) p2.style.opacity = nowPinned ? '1' : '0';
+                        if (nowPinned) savedProgress[compactKey] = true; else delete savedProgress[compactKey];
+                        localStorage.setItem(PINYIN_STORAGE_KEY, JSON.stringify(savedProgress));
                     } else {
                         e.stopPropagation();
                         if (!wrap.classList.contains('pinyin-pinned')) showPinyinTemporarily(wrap);
@@ -1979,7 +1979,10 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                     if (fadeTimers.has(wrap)) { clearTimeout(fadeTimers.get(wrap)); fadeTimers.delete(wrap); }
                     const p2 = wrap.querySelector('.wol-char-pinyin');
                     wrap.classList.toggle('pinyin-pinned');
-                    if (p2) p2.style.opacity = wrap.classList.contains('pinyin-pinned') ? '1' : '0';
+                    const nowPinned = wrap.classList.contains('pinyin-pinned');
+                    if (p2) p2.style.opacity = nowPinned ? '1' : '0';
+                    if (nowPinned) savedProgress[compactKey] = true; else delete savedProgress[compactKey];
+                    localStorage.setItem(PINYIN_STORAGE_KEY, JSON.stringify(savedProgress));
                 };
             });
         } else {
@@ -1987,7 +1990,10 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 const rb = ruby.querySelector('rb'), rt = ruby.querySelector('rt');
                 if (!rb || !rt) return;
                 const word = rb.textContent;
-                const visible = level === 'beginner' ? !tooltipProgress[word] : false;
+                const rkey = makeRubyKey(ruby);
+                const pinned = level === 'beginner' ? false : (rkey ? tooltipProgress[rkey] === true : tooltipProgress[word] === true);
+                const visible = level === 'beginner' ? !tooltipProgress[word] : pinned;
+                ruby.classList.toggle('pinyin-pinned', pinned);
                 rt.style.opacity = visible ? '1' : '0';
                 ruby.onclick = (e) => {
                     if (e.target.closest('a')) return;
@@ -2016,7 +2022,13 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                         ruby.classList.toggle('pinyin-pinned');
                         const pinned = ruby.classList.contains('pinyin-pinned');
                         rt.style.opacity = pinned ? '1' : '0';
-                        if (pinned) tooltipProgress[word] = true; else delete tooltipProgress[word];
+                        const rkey = makeRubyKey(ruby);
+                        if (rkey) {
+                            if (pinned) tooltipProgress[rkey] = true; else delete tooltipProgress[rkey];
+                        } else {
+                            if (pinned) tooltipProgress[word] = true; else delete tooltipProgress[word];
+                        }
+                        localStorage.setItem(PINYIN_STORAGE_KEY, JSON.stringify(tooltipProgress));
                     }
                 };
             });
@@ -2061,7 +2073,13 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                         ruby.classList.toggle('pinyin-pinned');
                         const pinned = ruby.classList.contains('pinyin-pinned');
                         rt.style.opacity = pinned ? '1' : '0';
-                        if (pinned) tooltipProgress[word] = true; else delete tooltipProgress[word];
+                        const rkey = makeRubyKey(ruby);
+                        if (rkey) {
+                            if (pinned) tooltipProgress[rkey] = true; else delete tooltipProgress[rkey];
+                        } else {
+                            if (pinned) tooltipProgress[word] = true; else delete tooltipProgress[word];
+                        }
+                        localStorage.setItem(PINYIN_STORAGE_KEY, JSON.stringify(tooltipProgress));
                     } else {
                         if (ruby.classList.contains('pinyin-pinned')) return;
                         rt.style.opacity = '1';
@@ -2128,10 +2146,10 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     const SPEED_KEY = 'wol_audio_speed';
     const SPEEDS = [
         { label: '1x · Normal', val: 1.0 },
-        { label: '0.9x',        val: 0.9 },
-        { label: '0.8x',        val: 0.8 },
-        { label: '0.7x',        val: 0.7 },
-        { label: '0.6x',        val: 0.6 },
+        { label: '0.9x', val: 0.9 },
+        { label: '0.8x', val: 0.8 },
+        { label: '0.7x', val: 0.7 },
+        { label: '0.6x', val: 0.6 },
     ];
 
     function getSavedSpeed() {
@@ -2166,8 +2184,8 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             <span style="font-size:14px;line-height:1;">🕓</span>
             <span id="wol_speed_label" style="font-size:12px;font-weight:600;color:#333;line-height:1;letter-spacing:-0.3px;">${savedSpeed === 1 ? '1x' : savedSpeed + 'x'}</span>
         `;
-        btn.addEventListener('mouseover', () => btn.style.background = 'rgba(0,0,0,0.13)');
-        btn.addEventListener('mouseout',  () => btn.style.background = 'rgba(0,0,0,0.07)');
+        btn.addEventListener('mouseover', () => { btn.style.background = 'rgba(0,0,0,0.13)'; });
+        btn.addEventListener('mouseout', () => { btn.style.background = 'rgba(0,0,0,0.07)'; });
 
         // ── Dropdown menu ──
         let menuOpen = false;
@@ -2188,8 +2206,8 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             SPEEDS.forEach(({ label, val }) => {
                 const row = document.createElement('div');
                 row.style.cssText = 'display:flex;align-items:center;padding:10px 16px;cursor:pointer;gap:10px;';
-                row.addEventListener('mouseover', () => row.style.background = '#f5f5f5');
-                row.addEventListener('mouseout',  () => row.style.background = '');
+                row.addEventListener('mouseover', () => { row.style.background = '#f5f5f5'; });
+                row.addEventListener('mouseout', () => { row.style.background = ''; });
 
                 // Radio circle
                 const radio = document.createElement('div');
@@ -2226,12 +2244,12 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             const menuW = menu.offsetWidth;
             const menuTop = btnRect.bottom + 6;
             const menuLeft = Math.min(btnRect.left, window.innerWidth - menuW - 8);
-            menu.style.top  = Math.max(menuTop, 4) + 'px';
+            menu.style.top = Math.max(menuTop, 4) + 'px';
             menu.style.left = Math.max(menuLeft, 8) + 'px';
 
             // Close on outside tap/click
             setTimeout(() => {
-                document.addEventListener('click',    closeMenu, { once: true });
+                document.addEventListener('click', closeMenu, { once: true });
                 document.addEventListener('touchend', closeMenu, { once: true });
             }, 0);
         }
@@ -2295,8 +2313,9 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             request.onsuccess = () => { db = request.result; resolve(db); };
             request.onupgradeneeded = (event) => {
                 const d = event.target.result;
-                if (!d.objectStoreNames.contains('highlights'))
+                if (!d.objectStoreNames.contains('highlights')) {
                     d.createObjectStore('highlights', { keyPath: 'pageID' });
+                }
             };
         });
     }
@@ -2332,7 +2351,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
 
     // ── Font size ──
     const WOL_FONT_SCALE = [
-        { pct: '70%',  pt: 8  }, { pct: '78%',  pt: 9  }, { pct: '85%',  pt: 10 },
+        { pct: '70%', pt: 8 }, { pct: '78%', pt: 9 }, { pct: '85%', pt: 10 },
         { pct: '100%', pt: 12 }, { pct: '117%', pt: 14 }, { pct: '138%', pt: 16 },
         { pct: '172%', pt: 20 }, { pct: '190%', pt: 22 }, { pct: '223%', pt: 26 },
         { pct: '267%', pt: 32 }, { pct: '308%', pt: 36 }, { pct: '370%', pt: 44 },
@@ -2410,7 +2429,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             clearInterval(poll);
             setTimeout(() => requestAnimationFrame(() => {
                 const currentPct = getCurrentScalableUIPct() || '100%';
-                const savedIdx   = WOL_FONT_SCALE.findIndex(s => s.pct === savedPct);
+                const savedIdx = WOL_FONT_SCALE.findIndex(s => s.pct === savedPct);
                 const currentIdx = WOL_FONT_SCALE.findIndex(s => s.pct === currentPct);
                 const diff = savedIdx - currentIdx;
                 const display = document.getElementById('wol_fontsize_display');
@@ -2661,6 +2680,12 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             store.put({ pageID, highlights });
             if (baseRef && baseRef !== pageID) store.put({ pageID: baseRef, highlights });
             if (container === document.body) getCurrentSyncKeys().forEach(key => store.put({ pageID: key, highlights }));
+            if (container === document.body) {
+                const rawPath = window.location.pathname;
+                store.put({ pageID: rawPath, highlights });
+                const ar = extractArticleRef(rawPath);
+                if (ar) store.put({ pageID: 'tooltip_' + ar, highlights });
+            }
             if (container.closest('.tooltip, .tooltipContainer')) {
                 const link = container.querySelector('a.bibleCitation, a.publicationCitation, a.pub-');
                 if (link) {
@@ -2676,6 +2701,12 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             store.delete(pageID);
             if (baseRef && baseRef !== pageID) store.delete(baseRef);
             if (container === document.body) getCurrentSyncKeys().forEach(key => store.delete(key));
+            if (container === document.body) {
+                const rawPath = window.location.pathname;
+                store.delete(rawPath);
+                const ar = extractArticleRef(rawPath);
+                if (ar) store.delete('tooltip_' + ar);
+            }
             if (container.closest('.tooltip, .tooltipContainer')) {
                 const link = container.querySelector('a.bibleCitation, a.publicationCitation, a.pub-');
                 if (link) {
@@ -2877,8 +2908,9 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             const newNode = range.startContainer.splitText(range.startOffset);
             range.setStart(newNode, 0);
         }
-        if (range.endContainer.nodeType === Node.TEXT_NODE && range.endOffset < range.endContainer.textContent.length)
+        if (range.endContainer.nodeType === Node.TEXT_NODE && range.endOffset < range.endContainer.textContent.length) {
             range.endContainer.splitText(range.endOffset);
+        }
         snapRangeToRubyBoundaries(range);
         const frag = range.cloneContents();
         const rubyElems = frag.querySelectorAll('ruby');
@@ -2927,7 +2959,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         if (rubyElems.length) {
             const liveRubies = [], liveTextNodes = [];
             const startEl = (range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer);
-            const endEl   = (range.endContainer.nodeType   === Node.TEXT_NODE ? range.endContainer.parentElement   : range.endContainer);
+            const endEl = (range.endContainer.nodeType === Node.TEXT_NODE ? range.endContainer.parentElement : range.endContainer);
             let para = startEl.closest('p, div.v, div.sb, div.sc, li, div.du, div.dc, h1, h2, h3, h4') || startEl.parentElement;
             const endPara = endEl.closest('p, div.v, div.sb, div.sc, li, div.du, div.dc, h1, h2, h3, h4') || endEl.parentElement;
             if (para && endPara && para !== endPara) { para = para.parentElement; while (para && !para.contains(endPara)) para = para.parentElement; }
@@ -2950,8 +2982,8 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                             if (anc.getAttribute('data-highlight-id')) { insideHighlight = true; break; }
                             anc = anc.parentElement;
                         }
-                        if (!insideRuby && !insideHighlight && node.textContent.trim() !== '' && !isFootnoteMarker(node) && !isReferenceSymbol(node))
-                            liveTextNodes.push(node);
+                        if (!insideRuby && !insideHighlight && node.textContent.trim() !== '' && !isFootnoteMarker(node) && !isReferenceSymbol(node)) {
+                        liveTextNodes.push(node);
                     }
                 }
             }
@@ -2970,9 +3002,10 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                     const span = makeHlSpan(); n.parentNode.replaceChild(span, n); span.appendChild(n);
                 }
             });
+            }
         } else {
             const startEl2 = (range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer);
-            const endEl2   = (range.endContainer.nodeType   === Node.TEXT_NODE ? range.endContainer.parentElement   : range.endContainer);
+            const endEl2 = (range.endContainer.nodeType === Node.TEXT_NODE ? range.endContainer.parentElement : range.endContainer);
             let para2 = startEl2.closest('p, div.v, div.sb, div.sc, li, div.du, div.dc, h1, h2, h3, h4') || startEl2.parentElement;
             const endPara2 = endEl2.closest('p, div.v, div.sb, div.sc, li, div.du, div.dc, h1, h2, h3, h4') || endEl2.parentElement;
             if (para2 && endPara2 && para2 !== endPara2) { para2 = para2.parentElement; while (para2 && !para2.contains(endPara2)) para2 = para2.parentElement; }
@@ -2996,8 +3029,9 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                         const n = tw.currentNode; if (!n.textContent.trim()) continue;
                         try {
                             const wr = document.createRange(); wr.selectNode(wrap);
-                            if (!(wr.compareBoundaryPoints(Range.END_TO_START, range) > 0) && !(wr.compareBoundaryPoints(Range.START_TO_END, range) < 0))
+                            if (!(wr.compareBoundaryPoints(Range.END_TO_START, range) > 0) && !(wr.compareBoundaryPoints(Range.START_TO_END, range) < 0)) {
                                 liveCompactNodes.push(n);
+                            }
                         } catch(e) {}
                     }
                 });
@@ -3018,8 +3052,9 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                     if (!n.textContent.trim() || isFootnoteMarker(n) || isReferenceSymbol(n)) continue;
                     try {
                         const wr = document.createRange(); wr.selectNode(n);
-                        if (!(wr.compareBoundaryPoints(Range.END_TO_START, range) > 0) && !(wr.compareBoundaryPoints(Range.START_TO_END, range) < 0))
+                        if (!(wr.compareBoundaryPoints(Range.END_TO_START, range) > 0) && !(wr.compareBoundaryPoints(Range.START_TO_END, range) < 0)) {
                             plainNodes.push(n);
+                        }
                     } catch(e) {}
                 }
                 liveCompactNodes.forEach(n => { if (!isFootnoteMarker(n) && !isReferenceSymbol(n) && n.parentNode && !n.parentNode.getAttribute('data-highlight-id')) wrapTextNode(n); });
@@ -3126,15 +3161,15 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             if (isIOS) {
                 // Right of icon, vertically centred on it
                 const left = Math.min(btnRect.right + 6, window.innerWidth - palette.offsetWidth - 6);
-                const top  = btnRect.top + (btnRect.height / 2) - (palette.offsetHeight / 2);
+                const top = btnRect.top + (btnRect.height / 2) - (palette.offsetHeight / 2);
                 palette.style.left = Math.max(left, btnRect.right + 4) + 'px';
-                palette.style.top  = Math.max(top, 4) + 'px';
+                palette.style.top = Math.max(top, 4) + 'px';
 
             } else {
                 // Desktop: horizontally centred in the viewport
-                const top  = btnRect.bottom + 6;
+                const top = btnRect.bottom + 6;
                 const left = (window.innerWidth - palette.offsetWidth) / 2;
-                palette.style.top  = Math.max(top, 0) + 'px';
+                palette.style.top = Math.max(top, 0) + 'px';
                 palette.style.left = Math.max(left, 6) + 'px';
             }
         }
@@ -3415,7 +3450,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 const pswp = m.target;
                 if (!pswp.classList.contains('pswp')) return;
                 const wasOpen = m.oldValue && m.oldValue.split(' ').includes('pswp--open');
-                const isOpen  = pswp.classList.contains('pswp--open');
+                const isOpen = pswp.classList.contains('pswp--open');
                 // Only fire on the transition TO open, not on every subsequent class tweak
                 if (isOpen && !wasOpen) handlePhotoSwipeOpen(pswp);
             });
@@ -3986,8 +4021,9 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             mutations.forEach(mutation => {
                 if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
                     const el = mutation.target;
-                    if (el.matches('p.qu') && el.dataset.greyBoxDone === 'true' && !el.classList.contains('jwac-textHighlight'))
+                    if (el.matches('p.qu') && el.dataset.greyBoxDone === 'true' && !el.classList.contains('jwac-textHighlight')) {
                         styleQuestionAsBox(el);
+                    }
                 }
             });
         });
@@ -4006,7 +4042,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     // one set of event listeners, guarded by a dataset flag.
 
     let iconPersistObserver = null;
-    function pauseIconObserver()  { if (iconPersistObserver) iconPersistObserver.disconnect(); }
+    function pauseIconObserver() { if (iconPersistObserver) iconPersistObserver.disconnect(); }
     function resumeIconObserver() { if (iconPersistObserver) iconPersistObserver.observe(document.body, { childList: true, subtree: true }); }
 
     function _buildSiteBannerHome(titleEl) {
@@ -4143,7 +4179,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             const menuHome = document.getElementById('menuHome');
             if (!menuHome) return;
             if (mode === 'study') {
-                const hasIcon  = !!menuHome.querySelector('#wol_study_icon_btn');
+                const hasIcon = !!menuHome.querySelector('#wol_study_icon_btn');
                 const strayLink = !!menuHome.querySelector('a');
                 if (!hasIcon || strayLink) buildMenuHome();
             } else {

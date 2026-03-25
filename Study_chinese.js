@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WOL Unified (Pinyin · Highlighter · Sync · Question Boxes)
 // @namespace    wol-unified
-// @version      2.2
+// @version      2.3
 // @description  Study/pinyin mode, 3-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
@@ -31,7 +31,7 @@
 (function() {
     'use strict';
 
-    const CURRENT_VERSION = "2.2";
+    const CURRENT_VERSION = "2.3";
 
     function compareVersions(local, remote) {
         const l = local.split('.').map(Number);

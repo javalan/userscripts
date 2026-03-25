@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         WOL Unified (Pinyin · Highlighter · Sync · Question Boxes)
 // @namespace    wol-unified
-// @version      2.0
+// @version      2.1
 // @description  Study/pinyin mode, 3-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
 // @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
 // @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
 // @grant        unsafeWindow
-// @require      https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese_version.js
+// @require      https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese_version.js?v=2.1
 // ==/UserScript==
 
 // ─────────────────────────────────────────────────────────────
@@ -31,7 +31,7 @@
 (function() {
     'use strict';
 
-    const CURRENT_VERSION = "2.0";
+    const CURRENT_VERSION = "2.1";
 
     function compareVersions(local, remote) {
         const l = local.split('.').map(Number);
@@ -284,11 +284,21 @@
     // 1. Version check using @require file (no fetch, CSP safe)
     // ─────────────────────────────────────────────────────────────
     (function checkVersion() {
+
         if (!window.STUDY_CHINESE_VERSION) return;
+
         const data = window.STUDY_CHINESE_VERSION;
-        if (compareVersions(CURRENT_VERSION, data.version) < 0) {
+
+        const local = String(CURRENT_VERSION);
+        const remote = String(data.version);
+
+        console.log("LOCAL:", local);
+        console.log("REMOTE:", remote);
+
+        if (compareVersions(local, remote) < 0) {
             showUpdateToast(data);
         }
+
     })();
 
     // ─────────────────────────────────────────────────────────────

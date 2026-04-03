@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         WOL Unified (Pinyin · Highlighter · Sync · Question Boxes)
 // @namespace    wol-unified
-// @version      2.7
+// @version      2.5
 // @description  Study/pinyin mode, 3-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
-// @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
-// @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
+// @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.user.js
+// @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.user.js
 // @grant        unsafeWindow
-// @require      https://apple.helioho.st/Study_chinese_version.js
+// @require      https://raw.githubusercontent.com/javalan/userscripts/master/Study_chinese_version.js
 // ==/UserScript==
 
 // ─────────────────────────────────────────────────────────────
@@ -31,7 +31,7 @@
 (function() {
     'use strict';
 
-    const CURRENT_VERSION = "2.7";
+    const CURRENT_VERSION = "2.5";
 
     function compareVersions(local, remote) {
         const l = local.split('.').map(Number);
@@ -361,6 +361,19 @@
     // IndexedDB — shared by highlighter and pinyin export/import
     let db = null;
 
+    // Debounced save — prevents duplicate saves when DOM mutations fire rapidly
+    const _saveTimers = new WeakMap();
+    function debouncedSave(container) {
+        if (_saveTimers.has(container)) clearTimeout(_saveTimers.get(container));
+        _saveTimers.set(container, setTimeout(() => {
+            _saveTimers.delete(container);
+            saveHighlights(container);
+        }, 400));
+    }
+
+    // Global highlight cooldown — prevents WebKit multi-touch firing multiple highlights
+    let _hlCooldown = false;
+
     function getMode() { return localStorage.getItem(MODE_KEY) || 'default'; }
     function setMode(m) { localStorage.setItem(MODE_KEY, m); }
     function getPlaybackEnabled() { return localStorage.getItem(PLAYBACK_KEY) === 'true'; }
@@ -386,22 +399,22 @@ const T = {
         playback:         { en: 'Inline audio playback', ko: '인라인 오디오 재생', ja: 'インライン音声再生', es: 'Reproducción de audio' },
         resetPage:        { en: '↺  Reset pinyin this page', ko: '↺  이 페이지 병음 초기화', ja: '↺  このページのピンインをリセット', es: '↺  Restablecer pinyin esta página' },
         resetAll:         { en: '⚠  Reset pinyin ALL pages', ko: '⚠  모든 페이지 병음 초기화', ja: '⚠  全ページのピンインをリセット', es: '⚠  Restablecer pinyin todas las páginas' },
-        inclHighlights:   { en: 'Include highlights', ko: '형광펜 포함', ja: 'ハイライトも含む', es: 'Incluir marcados' },
-        exportPinyin:     { en: '↑  Export pinyin + highlights', ko: '↑  병음 + 형광펜 내보내기', ja: '↑  ピンイン＋ハイライトを書き出す', es: '↑  Exportar pinyin + marcados' },
-        importPinyin:     { en: '↓  Import pinyin + highlights', ko: '↓  병음 + 형광펜 가져오기', ja: '↓  ピンイン＋ハイライトを読み込む', es: '↓  Importar pinyin + marcados' },
-        exportHL:         { en: '↑  Export highlights', ko: '↑  형광펜 내보내기', ja: '↑  ハイライトを書き出す', es: '↑  Exportar marcados' },
-        importHL:         { en: '↓  Import highlights', ko: '↓  형광펜 가져오기', ja: '↓  ハイライトを読み込む', es: '↓  Importar marcados' },
-        clearHL:          { en: '🗑  Clear all highlights', ko: '🗑  모든 형광펜 지우기', ja: '🗑  ハイライトをすべて消去', es: '🗑  Borrar todos los marcados' },
+        inclHighlights:   { en: 'Include highlights/notes', ko: '형광펜/노트 포함', ja: 'ハイライト/メモも含む', es: 'Incluir marcados/notas' },
+        exportPinyin:     { en: '↑  Export all', ko: '↑  전체 내보내기', ja: '↑  すべて書き出す', es: '↑  Exportar todo' },
+        importPinyin:     { en: '↓  Import from file', ko: '↓  파일에서 가져오기', ja: '↓  ファイルから読み込む', es: '↓  Importar desde archivo' },
+        exportHL:         { en: '↑  Export highlights/notes', ko: '↑  형광펜/노트 내보내기', ja: '↑  ハイライト/メモを書き出す', es: '↑  Exportar marcados/notas' },
+        importHL:         { en: '↓  Import highlights/notes', ko: '↓  형광펜/노트 가져오기', ja: '↓  ハイライト/メモを読み込む', es: '↓  Importar marcados/notas' },
+        clearHL:          { en: '🗑  Clear highlights/notes', ko: '🗑  모든 형광펜/노트 지우기', ja: '🗑  ハイライト/メモをすべて消去', es: '🗑  Borrar marcados/notas' },
         confirmResetPage: { en: 'Reset pinyin progress for this article?', ko: '이 글의 병음 학습을 초기화할까요?', ja: 'この記事のピンイン進捗をリセットしますか？', es: '¿Restablecer el progreso de pinyin de este artículo?' },
         confirmResetAll:  { en: 'Delete pinyin progress for ALL articles? This cannot be undone.', ko: '모든 글의 병음 학습을 삭제할까요? 되돌릴 수 없습니다.', ja: 'すべての記事のピンイン進捗を削除しますか？この操作は元に戻せません。', es: '¿Eliminar el progreso de pinyin de TODOS los artículos? Esta acción no se puede deshacer.' },
-        confirmResetHL:   { en: 'Also delete ALL highlights? This cannot be undone.', ko: '모든 형광펜도 삭제할까요? 되돌릴 수 없습니다.', ja: 'ハイライトもすべて削除しますか？この操作は元に戻せません。', es: '¿Eliminar también TODOS los marcados? Esta acción no se puede deshacer.' },
-        confirmClearHL:   { en: 'Delete all highlights?', ko: '모든 형광펜을 삭제할까요?', ja: 'ハイライトをすべて削除しますか？', es: '¿Eliminar todos los marcados?' },
-        promptExportName: { en: 'Enter a file name for the export:', ko: '내보낼 파일 이름을 입력하세요:', ja: 'ファイル名を入力してください：', es: 'Introduce un nombre para el archivo:' },
+        confirmResetHL:   { en: 'Also delete ALL highlights and notes? This cannot be undone.', ko: '모든 형광펜과 노트도 삭제할까요? 되돌릴 수 없습니다.', ja: 'ハイライトとメモもすべて削除しますか？この操作は元に戻せません。', es: '¿Eliminar también TODOS los marcados y notas? Esta acción no se puede deshacer.' },
+        confirmClearHL:   { en: 'Delete all highlights and notes?', ko: '모든 형광펜과 노트를 삭제할까요?', ja: 'ハイライトとメモをすべて削除しますか？', es: '¿Eliminar todos los marcados y notas?' },
+        promptExportName: { en: 'This file will include pinyin progress, highlights and notes from all articles\n\nEnter a file name for the export:', ko: '이 파일에는 모든 글의 병음 학습, 형광펜, 노트가 포함됩니다\n\n내보낼 파일 이름을 입력하세요:', ja: 'このファイルには全記事のピンイン進捗・ハイライト・メモが含まれます\n\nファイル名を入力してください：', es: 'Este archivo incluirá el progreso de pinyin, marcados y notas de todos los artículos\n\nIntroduce un nombre para el archivo:' },
         promptExportHL:   { en: 'Enter filename for export:', ko: '내보낼 파일 이름:', ja: 'ファイル名を入力：', es: 'Nombre del archivo de exportación:' },
-        noExportData:     { en: 'No pinyin or highlights to export.', ko: '내보낼 병음이나 형광펜이 없습니다.', ja: '書き出すデータがありません。', es: 'No hay pinyin ni marcados para exportar.' },
+        noExportData:     { en: 'No pinyin, highlights, or notes to export.', ko: '내보낼 병음, 형광펜, 노트가 없습니다.', ja: '書き出すデータがありません。', es: 'No hay pinyin, marcados ni notas para exportar.' },
         exportedHL:       { en: (n) => `Exported ${n} page${n===1?'':'s'} with highlights`, ko: (n) => `형광펜 ${n}페이지 내보내기 완료`, ja: (n) => `${n}ページのハイライトを書き出しました`, es: (n) => `${n} página${n===1?'':'s'} exportada${n===1?'':'s'}` },
         importedHL:       { en: (n,e) => `Imported ${n} pages${e>0?` (${e} errors)`:''}`, ko: (n,e) => `${n}페이지 가져오기 완료${e>0?` (오류 ${e}건)`:''}`, ja: (n,e) => `${n}ページを読み込みました${e>0?`（エラー${e}件）`:''}`, es: (n,e) => `${n} páginas importadas${e>0?` (${e} errores)`:''}` },
-        allHLCleared:     { en: 'All highlights cleared', ko: '모든 형광펜을 지웠습니다', ja: 'ハイライトをすべて消去しました', es: 'Todos los marcados eliminados' },
+        allHLCleared:     { en: 'All highlights and notes cleared', ko: '모든 형광펜과 노트를 지웠습니다', ja: 'ハイライトとメモをすべて消去しました', es: 'Todos los marcados y notas eliminados' },
         importSuccess:    { en: 'Import successful.', ko: '가져오기가 완료되었습니다.', ja: '読み込みが完了しました。', es: 'Importación completada.' },
         invalidJSON:      { en: 'Invalid JSON file.', ko: '잘못된 JSON 파일입니다.', ja: '無効なJSONファイルです。', es: 'Archivo JSON no válido.' },
         dbNotReady:       { en: 'Database not ready', ko: '데이터베이스 준비 중', ja: 'データベース準備中', es: 'Base de datos no lista' },
@@ -1467,6 +1480,10 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             }
             savedProgress = {}; applyInitialState();
             if (inclHlCheck.checked && db) {
+                // Purge notes from localStorage
+                Object.keys(localStorage)
+                    .filter(k => k.startsWith('wol_ta_'))
+                    .forEach(k => localStorage.removeItem(k));
                 const tx = db.transaction(['highlights'], 'readwrite');
                 tx.objectStore('highlights').clear();
                 tx.oncomplete = () => location.reload();
@@ -1502,8 +1519,15 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 }
             }
             const doExport = (highlights) => {
-                const combined = { pinyin, highlights: highlights || [] };
-                if (!Object.keys(pinyin).length && !combined.highlights.length) { alert(t('noExportData')); return; }
+                // Collect notes from localStorage
+                const notes = {};
+                for (let i = 0; i < localStorage.length; i++) {
+                    const k = localStorage.key(i);
+                    if (k && k.startsWith('wol_ta_') && !k.startsWith('wol_ta_open_'))
+                        notes[k] = localStorage.getItem(k);
+                }
+                const combined = { pinyin, highlights: highlights || [], notes };
+                if (!Object.keys(pinyin).length && !combined.highlights.length && !Object.keys(notes).length) { alert(t('noExportData')); return; }
                 const name = prompt(t('promptExportName'),'');
                 if (name === null) return;
                 const trimmed = name.trim();
@@ -1611,9 +1635,9 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         document.addEventListener('touchstart', (e) => {
             if (getMode() !== 'study') return;
             if (e.target.closest('.tooltip, .tooltipContainer')) return;
-            const qu = e.target.closest('p.qu[data-pid]');
+            const qu = e.target.closest('p.qu[data-pid], .wol-qu-wrap');
             if (!qu) return;
-            if (e.target.closest('ruby, rb, rt, .wol-char-wrap')) return;
+            if (e.target.closest('ruby, rb, rt, .wol-char-wrap, .wol-qu-toggle, .wol-ta-field')) return;
             e.stopImmediatePropagation();
         }, { capture: true, passive: false });
 
@@ -1938,9 +1962,13 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         const tooltipProgress = savedProgress;
 
         if (compact) {
-            tooltip.querySelectorAll('ruby').forEach(ruby => {
+            const tooltipRubies = Array.from(tooltip.querySelectorAll('ruby'));
+            const rubyKeys = new Map(tooltipRubies.map(r => [r, makeRubyKey(r)]));
+
+            tooltipRubies.forEach(ruby => {
                 const rb = ruby.querySelector('rb'), rt = ruby.querySelector('rt');
                 if (!rb || !rt) return;
+                const rkey = rubyKeys.get(ruby);
                 const chars = Array.from(rb.textContent);
                 const syllables = splitPinyinToSyllables(rt.textContent, chars.length);
                 const isBold = !!rb.querySelector('strong');
@@ -1949,18 +1977,28 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 group.setAttribute('data-original-ruby', ruby.outerHTML);
                 group.style.cssText = 'display:inline;margin:0;padding:0;';
                 if (chars.length > 1 && syllables.length === chars.length) {
-                    chars.forEach((ch, i) => group.appendChild(makeCharWrap(ch, syllables[i], isBold)));
-                } else { group.appendChild(makeCharWrap(rb.textContent, rt.textContent.trim(), isBold)); }
+                    chars.forEach((ch, i) => {
+                        const w = makeCharWrap(ch, syllables[i], isBold);
+                        // Store rkey + char index so each sub-char has a unique key
+                        if (rkey) w.setAttribute('data-rkey', rkey + '_c' + i);
+                        group.appendChild(w);
+                    });
+                } else {
+                    const w = makeCharWrap(rb.textContent, rt.textContent.trim(), isBold);
+                    if (rkey) w.setAttribute('data-rkey', rkey);
+                    group.appendChild(w);
+                }
                 ruby.replaceWith(group);
             });
+
             tooltip.querySelectorAll('.wol-char-wrap').forEach(wrap => {
-                const ch = wrap.getAttribute('data-char');
-                const sy = wrap.getAttribute('data-syllable');
-                const compactKey = 'tooltip_compact_' + ch + '_' + sy;
-                const pinned = savedProgress[compactKey] === true;
+                const wrapKey = wrap.getAttribute('data-rkey');
+                // Restore pin state using position key, same as advanced mode
+                const pinned = wrapKey ? savedProgress[wrapKey] === true : false;
                 wrap.classList.toggle('pinyin-pinned', pinned);
                 const p = wrap.querySelector('.wol-char-pinyin');
                 if (p) p.style.opacity = pinned ? '1' : '0';
+
                 let lastTap = 0, touchStartTime = 0;
                 wrap.addEventListener('touchstart', () => { touchStartTime = Date.now(); }, { passive: true });
                 wrap.addEventListener('touchend', (e) => {
@@ -1975,14 +2013,20 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                         wrap.classList.toggle('pinyin-pinned');
                         const nowPinned = wrap.classList.contains('pinyin-pinned');
                         if (p2) p2.style.opacity = nowPinned ? '1' : '0';
-                        if (nowPinned) savedProgress[compactKey] = true; else delete savedProgress[compactKey];
-                        localStorage.setItem(PINYIN_STORAGE_KEY, JSON.stringify(savedProgress));
+                        if (wrapKey) {
+                            if (nowPinned) savedProgress[wrapKey] = true;
+                            else delete savedProgress[wrapKey];
+                            localStorage.setItem(PINYIN_STORAGE_KEY, JSON.stringify(savedProgress));
+                        }
                     } else {
                         e.stopPropagation();
                         if (!wrap.classList.contains('pinyin-pinned')) showPinyinTemporarily(wrap);
                     }
                 }, { passive: false });
-                wrap.onclick = (e) => { e.stopPropagation(); if (!wrap.classList.contains('pinyin-pinned')) showPinyinTemporarily(wrap); };
+                wrap.onclick = (e) => {
+                    e.stopPropagation();
+                    if (!wrap.classList.contains('pinyin-pinned')) showPinyinTemporarily(wrap);
+                };
                 wrap.ondblclick = (e) => {
                     e.preventDefault(); e.stopPropagation();
                     window.getSelection && window.getSelection().removeAllRanges();
@@ -1991,8 +2035,11 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                     wrap.classList.toggle('pinyin-pinned');
                     const nowPinned = wrap.classList.contains('pinyin-pinned');
                     if (p2) p2.style.opacity = nowPinned ? '1' : '0';
-                    if (nowPinned) savedProgress[compactKey] = true; else delete savedProgress[compactKey];
-                    localStorage.setItem(PINYIN_STORAGE_KEY, JSON.stringify(savedProgress));
+                    if (wrapKey) {
+                        if (nowPinned) savedProgress[wrapKey] = true;
+                        else delete savedProgress[wrapKey];
+                        localStorage.setItem(PINYIN_STORAGE_KEY, JSON.stringify(savedProgress));
+                    }
                 };
             });
         } else {
@@ -2105,11 +2152,9 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     // ── qu tap suppression ──
     function isNonInteractiveQuTap(e) {
         if (getMode() !== 'study') return false;
-        const qu = e.target.closest('.qu');
+        const qu = e.target.closest('.qu, .wol-qu-wrap');
         if (!qu) return false;
-        // Only pinyin elements are interactive — everything else (including par number
-        // links) should suppress WOL's qu collapse handler.
-        return !e.target.closest('ruby, rb, rt, .wol-char-wrap, a');
+        return !e.target.closest('ruby, rb, rt, .wol-char-wrap, a, .wol-qu-toggle, .wol-ta-field');
     }
     let _quTouchStartY = 0;
     document.addEventListener('touchstart', (e) => {
@@ -2563,82 +2608,50 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         if (menu.style.display && menu.style.display !== 'none') injectPlaybackToggle(menu);
     });
 
-    // ── Highlighter helpers ──
     function extractScriptureRef(url) {
         const m = url.match(/\/b\/[^\/]+\/[^\/]+\/[^\/]+\/(\d+)\/(\d+)/);
         return m ? `scripture_${m[1]}_${m[2]}` : null;
     }
     function extractArticleRef(url) {
-        const m1 = url.match(/\/(?:d|dsync|m|msync|meetings|lv|pc)\/((?:[^\/]+\/)*[^\/]+?)\/(\d+)(?:[^#\/\?]*)/);
+        const m1 = url.match(/\/(?:d|dsync|b|bsync|m|msync|meetings|lv|pc)\/((?:[^\/]+\/)*[^\/]+?)\/(\d+)(?:[^#\/\?]*)/);
         if (m1) return `article_${m1[1].replace(/\//g,'_')}_${m1[2]}`;
         const m2 = url.match(/\/(w|wp|g|km|mwb)\/[^\/]+\/[^\/]+\/([^#\/\?]+)/);
         if (m2) return `pub_${m2[1]}_${m2[2]}`;
         return null;
     }
-    function getAllSyncKeys(url) {
-        const keys = [];
-        const sr = extractScriptureRef(url);
-        if (sr) keys.push('tooltip_' + sr);
-        const ar = extractArticleRef(url);
-        if (ar) keys.push('tooltip_' + ar);
-        keys.push(url.split('#')[0]);
-        return keys;
-    }
     function simpleHash(str) {
         let hash = 0;
-        for (let i = 0; i < str.length; i++) { const char = str.charCodeAt(i); hash = ((hash << 5) - hash) + char; hash = hash & hash; }
+        for (let i = 0; i < str.length; i++) { hash = ((hash << 5) - hash) + str.charCodeAt(i); hash = hash & hash; }
         return Math.abs(hash).toString(36);
     }
-    function getPageID(container) {
-        container = container || document.body;
+    // Two canonical keys per container — article ref + tooltip mirror
+    function getKeys(container) {
         const tooltip = container.closest('.tooltip, .tooltipContainer');
         if (tooltip) {
             const link = tooltip.querySelector('a.bibleCitation, a.publicationCitation, a.pub-');
             if (link) {
                 const href = link.getAttribute('href');
                 if (href) {
-                    const ar = extractArticleRef(href); if (ar) return 'tooltip_' + ar;
-                    return 'tooltip_' + href.split('#')[0];
+                    const abs = new URL(href, window.location.href).pathname;
+                    const ar = extractArticleRef(abs) || extractScriptureRef(abs)
+                            || extractArticleRef(href) || extractScriptureRef(href);
+                    if (ar) return [ar, 'tooltip_' + ar];
+                    const rawKey = abs.split('#')[0];
+                    return [rawKey, 'tooltip_' + rawKey];
                 }
             }
-            return 'tooltip_' + simpleHash(tooltip.textContent.trim().substring(0, 500));
+            return ['tooltip_' + simpleHash(tooltip.textContent.trim().substring(0, 500))];
         }
-        const ar = extractArticleRef(window.location.pathname, true);
-        if (ar) return ar;
-        const sr = extractScriptureRef(window.location.pathname);
-        if (sr) return sr;
-        return window.location.pathname + window.location.search;
-    }
-    function getBaseReference(container) {
-        container = container || document.body;
-        const tooltip = container.closest('.tooltip, .tooltipContainer');
-        if (tooltip) {
-            const link = tooltip.querySelector('a.bibleCitation, a.publicationCitation, a.pub-');
-            if (link) {
-                const href = link.getAttribute('href');
-                if (href) {
-                    const ar = extractArticleRef(href); if (ar) return ar;
-                    return href.split('#')[0];
-                }
-            }
-        }
-        const sr = extractScriptureRef(window.location.pathname); if (sr) return sr;
-        const ar = extractArticleRef(window.location.pathname); if (ar) return ar;
-        return window.location.pathname + window.location.search;
-    }
-    function getCurrentSyncKeys() {
-        const keys = [];
-        const sr = extractScriptureRef(window.location.pathname);
-        if (sr) keys.push('tooltip_' + sr);
-        return keys;
+        const path = window.location.pathname;
+        const ar = extractArticleRef(path) || extractScriptureRef(path) || path;
+        return [ar];  // main article: one key only, no tooltip mirror needed
     }
 
     // ── Save / restore highlights ──
     function saveHighlights(container) {
         container = container || document.body;
         if (!db) return;
-        const pageID = getPageID(container);
-        const baseRef = getBaseReference(container);
+        const keys = getKeys(container);
         const highlights = [];
         const highlightGroups = new Map();
         container.querySelectorAll('span[data-highlight-id]').forEach(span => {
@@ -2681,86 +2694,38 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         }
         highlightGroups.forEach((spanGroup, id) => {
             if (spanGroup.length === 0) return;
-            const color = spanGroup[0].style.backgroundColor;
-            highlights.push({ id, color, text: getTextBetweenSpans(spanGroup) });
+            highlights.push({ id, color: spanGroup[0].style.backgroundColor, text: getTextBetweenSpans(spanGroup) });
         });
         const transaction = db.transaction(['highlights'], 'readwrite');
         const store = transaction.objectStore('highlights');
         if (highlights.length > 0) {
-            store.put({ pageID, highlights });
-            if (baseRef && baseRef !== pageID) store.put({ pageID: baseRef, highlights });
-            if (container === document.body) getCurrentSyncKeys().forEach(key => store.put({ pageID: key, highlights }));
-            if (container === document.body) {
-                const rawPath = window.location.pathname;
-                store.put({ pageID: rawPath, highlights });
-                const ar = extractArticleRef(rawPath);
-                if (ar) store.put({ pageID: 'tooltip_' + ar, highlights });
-            }
-            if (container.closest('.tooltip, .tooltipContainer')) {
-                const link = container.querySelector('a.bibleCitation, a.publicationCitation, a.pub-');
-                if (link) {
-                    const href = link.getAttribute('href');
-                    if (href) {
-                        const ar = extractArticleRef(href);
-                        if (ar) store.put({ pageID: 'tooltip_' + ar, highlights });
-                        store.put({ pageID: href.split('#')[0], highlights });
-                    }
-                }
-            }
+            keys.forEach(key => store.put({ pageID: key, highlights }));
         } else {
-            store.delete(pageID);
-            if (baseRef && baseRef !== pageID) store.delete(baseRef);
-            if (container === document.body) getCurrentSyncKeys().forEach(key => store.delete(key));
-            if (container === document.body) {
-                const rawPath = window.location.pathname;
-                store.delete(rawPath);
-                const ar = extractArticleRef(rawPath);
-                if (ar) store.delete('tooltip_' + ar);
-            }
-            if (container.closest('.tooltip, .tooltipContainer')) {
-                const link = container.querySelector('a.bibleCitation, a.publicationCitation, a.pub-');
-                if (link) {
-                    const href = link.getAttribute('href');
-                    if (href) {
-                        const ar = extractArticleRef(href);
-                        if (ar) store.delete('tooltip_' + ar);
-                        store.delete(href.split('#')[0]);
-                    }
-                }
-            }
+            keys.forEach(key => store.delete(key));
         }
     }
 
     function restoreHighlights(container) {
         container = container || document.body;
         if (!db) return;
-        const pageID = getPageID(container);
-        const baseRef = getBaseReference(container);
-        let pageIDsToCheck = [pageID];
-        if (baseRef && baseRef !== pageID) pageIDsToCheck.push(baseRef);
-        if (container === document.body) pageIDsToCheck = pageIDsToCheck.concat(getCurrentSyncKeys());
-        // Also check raw pathname and tooltip-prefixed key so tooltip highlights
-        // restore when navigating directly to the Bible page
-        if (container === document.body) {
-            const rawPath = window.location.pathname;
-            if (!pageIDsToCheck.includes(rawPath)) pageIDsToCheck.push(rawPath);
-            const ar = extractArticleRef(rawPath);
-            if (ar) {
-                const tooltipKey = 'tooltip_' + ar;
-                if (!pageIDsToCheck.includes(tooltipKey)) pageIDsToCheck.push(tooltipKey);
-            }
-        }
+        // Don't restore if highlights already exist — prevents duplicate IDs from
+        // multiple restore calls (init timeouts, MutationObserver, compact mode switch)
+        if (container.querySelector('span[data-highlight-id]')) return;
+
+        const keys = getKeys(container);
         const transaction = db.transaction(['highlights'], 'readonly');
         const store = transaction.objectStore('highlights');
         const allHighlights = new Map();
         let processed = 0;
-        pageIDsToCheck.forEach(id => {
+
+        keys.forEach(id => {
             const request = store.get(id);
             request.onsuccess = () => {
                 processed++;
                 const result = request.result;
-                if (result && result.highlights) result.highlights.forEach(h => { if (!allHighlights.has(h.text)) allHighlights.set(h.text, h); });
-                if (processed === pageIDsToCheck.length) {
+                if (result && result.highlights)
+                    result.highlights.forEach(h => { if (!allHighlights.has(h.text)) allHighlights.set(h.text, h); });
+                if (processed === keys.length) {
                     const highlights = Array.from(allHighlights.values());
                     if (highlights.length === 0) return;
                     function pinyinFilter(node) {
@@ -2773,10 +2738,10 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                         }
                         return NodeFilter.FILTER_ACCEPT;
                     }
-                    const pinyinFilterObj = { acceptNode: pinyinFilter };
+                    const pfo = { acceptNode: pinyinFilter };
                     function getTextContent(node) {
                         let text = '';
-                        const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, pinyinFilterObj);
+                        const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, pfo);
                         while (walker.nextNode()) text += walker.currentNode.textContent;
                         return text;
                     }
@@ -2785,7 +2750,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                         const index = fullText.indexOf(searchText);
                         if (index === -1) return false;
                         const range = document.createRange();
-                        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, pinyinFilterObj);
+                        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, pfo);
                         let currentLength = 0, startNode = null, startOffset = 0, endNode = null, endOffset = 0;
                         while (walker.nextNode()) {
                             const node = walker.currentNode, nodeLength = node.textContent.length;
@@ -2795,20 +2760,18 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                         }
                         if (startNode && endNode) {
                             try { range.setStart(startNode, startOffset); range.setEnd(endNode, endOffset); smartHighlight(range, highlight.color, true); return true; }
-                            catch(e) { return false; }
+                            catch (e) { return false; }
                         }
                         return false;
                     }
                     const articleContainer = container.querySelector('#article, .article, #content, .synopsis') || container;
-                    const allParas = articleContainer.querySelectorAll('div[data-pid], p, div.v, div.sb, div.sc, li, div.du, div.dc, h1, h2, h3, h4');
-                    const paragraphs = Array.from(allParas).filter(el => !el.closest('.documentNavigation, .noTooltips'));
+                    const paragraphs = Array.from(articleContainer.querySelectorAll('div[data-pid], p, div.v, div.sb, div.sc, li, div.du, div.dc, h1, h2, h3, h4'))
+                        .filter(el => !el.closest('.documentNavigation, .noTooltips'));
                     highlights.forEach(highlight => {
-                        const existing = container.querySelector(`span[data-highlight-id="${highlight.id}"]`);
-                        if (existing) return;
+                        if (container.querySelector(`span[data-highlight-id="${highlight.id}"]`)) return;
                         for (let i = 0; i < paragraphs.length; i++) {
-                            const para = paragraphs[i];
-                            if (para.querySelector(`span[data-highlight-id="${highlight.id}"]`)) continue;
-                            if (highlightTextInElement(para, highlight.text, highlight)) break;
+                            if (paragraphs[i].querySelector(`span[data-highlight-id="${highlight.id}"]`)) continue;
+                            if (highlightTextInElement(paragraphs[i], highlight.text, highlight)) break;
                         }
                     });
                 }
@@ -2826,7 +2789,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         const highlightID = span.getAttribute('data-highlight-id');
         const container = span.closest('.tooltip, .tooltipContainer') || document.body;
         container.querySelectorAll(`span[data-highlight-id="${highlightID}"]`).forEach(part => unwrapSpan(part));
-        setTimeout(() => saveHighlights(container), 100);
+        debouncedSave(container);
     }
     function addRemoveListener(span) {
         span.style.cursor = 'pointer'; span.title = 'Long-press to remove highlight';
@@ -3082,9 +3045,9 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             }
         }
         if (!skipSave) {
-            const tooltipContainer = document.querySelector('.tooltip, .tooltipContainer');
-            const container = tooltipContainer || document.body;
-            setTimeout(() => saveHighlights(container), 100);
+            const anySpan = document.querySelector(`span[data-highlight-id="${highlightID}"]`);
+            const container = (anySpan && anySpan.closest('.tooltip, .tooltipContainer')) || document.body;
+            debouncedSave(container);
         }
     }
 
@@ -3117,7 +3080,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
 
         const palette = document.createElement('div');
         palette.id = 'wol_hl_float_palette';
-        palette.style.cssText = 'position:fixed;z-index:2147483646;background:#f0f0f0;border:1px solid #d0d0d0;border-radius:8px;padding:0 10px;height:44px;display:flex;align-items:center;gap:13px;box-shadow:0 2px 10px rgba(0,0,0,0.12);user-select:none;-webkit-user-select:none;touch-action:none;cursor:grab;top:56px;left:10px;';
+        palette.style.cssText = 'position:fixed;z-index:500;background:#f0f0f0;border:1px solid #d0d0d0;border-radius:8px;padding:0 10px;height:44px;display:flex;align-items:center;gap:13px;box-shadow:0 2px 10px rgba(0,0,0,0.12);user-select:none;-webkit-user-select:none;touch-action:none;cursor:grab;top:56px;left:10px;';
         const handle = document.createElement('div');
         handle.style.cssText = 'color:#bbb;font-size:15px;cursor:grab;padding:0 2px;line-height:1;flex-shrink:0;';
         handle.textContent = '⠿'; handle.title = 'Drag to move';
@@ -3192,10 +3155,13 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     }
 
     function applyHighlightColor(c) {
-        if (!currentRange) return;
+        if (!currentRange) { alert(t('selectFirst')); return; }
+        if (_hlCooldown) return;
+        _hlCooldown = true;
+        setTimeout(() => { _hlCooldown = false; }, 600);
         const rangeToHighlight = currentRange.cloneRange();
         currentRange = null;
-        window.getSelection().removeAllRanges();
+        window.getSelection && window.getSelection().removeAllRanges();
         try { smartHighlight(rangeToHighlight, c); } catch(err) { console.warn('Highlight error:', err); }
     }
 
@@ -3265,9 +3231,14 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         const request = store.getAll();
         request.onsuccess = () => {
             const allData = request.result;
-            if (allData.length === 0) { alert(t('noHLExport')); return; }
-            // Unified format — same as pinyin+highlights export, pinyin left empty
-            const combined = { pinyin: {}, highlights: allData };
+            const notes = {};
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (k && k.startsWith('wol_ta_') && !k.startsWith('wol_ta_open_'))
+                    notes[k] = localStorage.getItem(k);
+            }
+            if (allData.length === 0 && !Object.keys(notes).length) { alert(t('noHLExport')); return; }
+            const combined = { highlights: allData, notes };
             const blob = new Blob([JSON.stringify(combined, null, 2)], { type: 'application/json' });
             const filename = prompt(t('promptExportHL'));
             if (!filename) return;
@@ -3306,17 +3277,23 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 try {
                     const raw = JSON.parse(event.target.result);
                     // Detect format:
-                    // Unified: { pinyin: {}, highlights: [...] }
+                    // Unified: { pinyin: {}, highlights: [...], notes: {} }
                     // Old HL-only: [{pageID, highlights}, ...]
-                    let hlData, pinyinData;
+                    let hlData, pinyinData, notesData;
                     if (Array.isArray(raw)) {
                         // Old format — highlights array only
-                        hlData = raw; pinyinData = null;
+                        hlData = raw; pinyinData = null; notesData = null;
                     } else if (raw && Array.isArray(raw.highlights)) {
                         // Unified format
                         hlData = raw.highlights;
                         pinyinData = (raw.pinyin && Object.keys(raw.pinyin).length > 0) ? raw.pinyin : null;
+                        notesData = (raw.notes && Object.keys(raw.notes).length > 0) ? raw.notes : null;
                     } else { alert(t('invalidFormat')); return; }
+
+                    // Restore notes unconditionally (they're device-specific path keys)
+                    if (notesData) {
+                        Object.entries(notesData).forEach(([k, v]) => localStorage.setItem(k, v));
+                    }
 
                     // Ask about pinyin if found and not silent
                     const doPinyin = pinyinData && (silentPinyin || confirm(t('pinyinFound')));
@@ -3335,6 +3312,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                         transaction.onerror = () => alert('Error importing: ' + transaction.error);
                     } else {
                         alert(t('importSuccess'));
+                        setTimeout(() => window.location.reload(), 300);
                     }
                 } catch(err) { alert(t('invalidJSON')); }
             };
@@ -3347,7 +3325,13 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         if (!confirm(t('confirmClearHL'))) return;
         const transaction = db.transaction(['highlights'], 'readwrite');
         const request = transaction.objectStore('highlights').clear();
-        request.onsuccess = () => { alert(t('allHLCleared')); setTimeout(() => window.location.reload(), 300); };
+        request.onsuccess = () => {
+            Object.keys(localStorage)
+                .filter(k => k.startsWith('wol_ta_'))
+                .forEach(k => localStorage.removeItem(k));
+            alert(t('allHLCleared'));
+            setTimeout(() => window.location.reload(), 300);
+        };
         request.onerror = () => alert('Error clearing highlights');
     }
 
@@ -3376,18 +3360,18 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         if (tooltipType) tooltipType.style.display = 'none';
         const tooltipPalette = document.createElement('div');
         tooltipPalette.className = 'hl_tooltip_palette';
-        tooltipPalette.style.cssText = 'display:flex !important;align-items:center;gap:6px;padding:4px 8px;flex-shrink:0;order:-1;';
+        tooltipPalette.style.cssText = 'display:flex !important;align-items:center;gap:13px;padding:4px 8px 4px 13px;flex-shrink:0;order:-1;';
         hlColors.forEach(c => {
-            const btn = document.createElement('div');
-            btn.style.cssText = 'width:16px;height:16px;border-radius:50%;cursor:pointer;border:1px solid #999;background:' + c + ';flex-shrink:0;';
-            btn.onclick = function(e) {
+        const btn = document.createElement('div');
+            btn.style.cssText = `width:20px;height:20px;border-radius:50%;cursor:pointer;border:1.5px solid rgba(0,0,0,0.15);background:${c === '#fff176' ? '#ffd600' : c};flex-shrink:0;box-shadow:0 1px 3px rgba(0,0,0,0.15);`;
+            btn.addEventListener('touchend', e => {
                 e.preventDefault(); e.stopPropagation();
-                if (!currentRange) { alert(t('selectFirst')); return; }
-                const rangeToHighlight = currentRange.cloneRange();
-                currentRange = null;
-                window.getSelection().removeAllRanges();
-                try { smartHighlight(rangeToHighlight, c); } catch(err) { alert('Selection too complex: ' + err.message); }
-            };
+                applyHighlightColor(c);
+            }, { passive: false });
+            btn.addEventListener('click', e => {
+                e.preventDefault(); e.stopPropagation();
+                applyHighlightColor(c);
+            });
             tooltipPalette.appendChild(btn);
         });
         const tooltipClose = tooltipHeader.querySelector('.tooltipClose');
@@ -3979,11 +3963,13 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     // 8. QUESTION BOXES  (from script4)
     // ─────────────────────────────────────────────────────────────
     (function initQuestionBoxes() {
-        const isSearchResult = /[?&]p=/.test(location.search);
-        const SCROLL_OFFSET = 136;
+        const STORE_KEY_PREFIX = 'wol_ta_';
+        const isSearchResult   = /[?&]p=/.test(location.search);
+        const SCROLL_OFFSET    = 136;
 
+        // ── Shared helper: style a question paragraph as a grey box ──
         function styleQuestionAsBox(questionP) {
-            if (!questionP) return;
+            if (!questionP || questionP.dataset.greyBoxDone) return;
             questionP.style.backgroundColor = '#f2f2f2';
             questionP.style.borderLeft = '6px solid #c6c6c6';
             questionP.style.padding = '10px 12px';
@@ -3991,56 +3977,249 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             questionP.style.borderRadius = '4px';
             questionP.dataset.greyBoxDone = 'true';
         }
-        function scrollToMkhl() {
-            const target = document.querySelector('span.mkhl'); if (!target) return;
-            window.scrollTo({ top: target.getBoundingClientRect().top + window.scrollY - SCROLL_OFFSET, behavior: 'smooth' });
-            history.replaceState(null, '', location.pathname + location.search + location.hash);
-        }
-        function rescrollWhenIdle() {
-            let lastY = window.scrollY, stable = 0;
-            const check = setInterval(() => {
-                const y = window.scrollY;
-                if (y === lastY) { if (++stable >= 3) { clearInterval(check); scrollToMkhl(); } }
-                else { stable = 0; lastY = y; }
-            }, 100);
-            setTimeout(() => clearInterval(check), 3000);
-        }
-        function installSearchHitInterceptors() {
-            ['menuSearchHitNext','menuSearchHitPrev'].forEach(id => {
-                const li = document.getElementById(id);
-                if (!li || li.dataset.scrollPatched) return;
-                li.dataset.scrollPatched = 'true';
-                li.addEventListener('click', () => setTimeout(scrollToMkhl, 150), true);
-            });
-        }
-        let _rescrollScheduled = false;
-        function processAllDisabledTextareas() {
-            const textareas = document.querySelectorAll('textarea:disabled');
-            let removed = false;
-            textareas.forEach(textarea => {
-                const container = textarea.closest('.gen-field');
-                if (!container || container.dataset.processed) return;
-                const questionP = container.previousElementSibling;
-                if (questionP && questionP.matches('p.qu')) styleQuestionAsBox(questionP);
-                container.remove(); removed = true;
-            });
-            if (removed && isSearchResult && !_rescrollScheduled) { _rescrollScheduled = true; rescrollWhenIdle(); }
-            if (isSearchResult) installSearchHitInterceptors();
-        }
-        const highlightObserverQB = new MutationObserver((mutations) => {
-            mutations.forEach(mutation => {
-                if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
-                    const el = mutation.target;
-                    if (el.matches('p.qu') && el.dataset.greyBoxDone === 'true' && !el.classList.contains('jwac-textHighlight')) {
-                        styleQuestionAsBox(el);
-                    }
+
+        // ── Highlight observer — re-style if WOL strips our inline styles ──
+        new MutationObserver(mutations => {
+            for (const m of mutations) {
+                if (m.type !== 'attributes' || m.attributeName !== 'class') continue;
+                const el = m.target;
+                if (el.matches('p.qu') && el.dataset.greyBoxDone === 'true'
+                        && !el.classList.contains('jwac-textHighlight')) {
+                    styleQuestionAsBox(el);
                 }
+            }
+        }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
+
+        // ═══════════════════════════════════════════════════════════
+        // REGULAR MODE — original behaviour: remove gen-field, style box
+        // ═══════════════════════════════════════════════════════════
+        if (getMode() !== 'study') {
+            function scrollToMkhl() {
+                const target = document.querySelector('span.mkhl'); if (!target) return;
+                window.scrollTo({ top: target.getBoundingClientRect().top + window.scrollY - SCROLL_OFFSET, behavior: 'smooth' });
+                history.replaceState(null, '', location.pathname + location.search + location.hash);
+            }
+            function rescrollWhenIdle() {
+                let lastY = window.scrollY, stable = 0;
+                const check = setInterval(() => {
+                    const y = window.scrollY;
+                    if (y === lastY) { if (++stable >= 3) { clearInterval(check); scrollToMkhl(); } }
+                    else { stable = 0; lastY = y; }
+                }, 100);
+                setTimeout(() => clearInterval(check), 3000);
+            }
+            function installSearchHitInterceptors() {
+                ['menuSearchHitNext','menuSearchHitPrev'].forEach(id => {
+                    const li = document.getElementById(id);
+                    if (!li || li.dataset.scrollPatched) return;
+                    li.dataset.scrollPatched = 'true';
+                    li.addEventListener('click', () => setTimeout(scrollToMkhl, 150), true);
+                });
+            }
+            let _rescrollScheduled = false;
+            function processAllRegular() {
+                const textareas = document.querySelectorAll('textarea:disabled');
+                let removed = false;
+                textareas.forEach(textarea => {
+                    const container = textarea.closest('.gen-field');
+                    if (!container || container.dataset.processed) return;
+                    container.dataset.processed = 'true';
+                    const questionP = container.previousElementSibling;
+                    if (questionP && questionP.matches('p.qu')) styleQuestionAsBox(questionP);
+                    container.remove(); removed = true;
+                });
+                if (removed && isSearchResult && !_rescrollScheduled) { _rescrollScheduled = true; rescrollWhenIdle(); }
+                if (isSearchResult) installSearchHitInterceptors();
+            }
+            new MutationObserver(() => processAllRegular())
+                .observe(document.body, { childList: true, subtree: true });
+            processAllRegular();
+            return; // stop here — textarea feature is study mode only
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // STUDY MODE — collapsible textarea with persistence
+        // ═══════════════════════════════════════════════════════════
+
+        // ── Inject styles once ──
+        if (!document.getElementById('wol_ta_styles')) {
+            const s = document.createElement('style');
+            s.id = 'wol_ta_styles';
+            s.textContent = `
+                .wol-qu-wrap { position: relative; }
+
+                /* Toggle button — plain + glyph, no background circle */
+                .wol-qu-toggle {
+                    position: absolute;
+                    bottom: 8px; right: 10px;
+                    width: 20px; height: 20px;
+                    background: none;
+                    color: #aaa;
+                    font-size: 17px;
+                    line-height: 20px;
+                    font-weight: bold;
+                    text-align: center;
+                    cursor: pointer;
+                    user-select: none !important;
+                    -webkit-user-select: none !important;
+                    pointer-events: auto !important;
+                    touch-action: manipulation !important;
+                    z-index: 2;
+                    /* Extend tap area */
+                    padding: 8px;
+                    margin: -8px;
+                    box-sizing: content-box;
+                }
+                .wol-qu-toggle:active { color: #777; }
+
+                /* Textarea — fully interactive, overrides study-mode suppression */
+                .wol-ta-field {
+                    display: none;
+                    width: 100% !important;
+                    box-sizing: border-box !important;
+                    font-size: 16px !important;
+                    line-height: 24px !important;
+                    min-height: 42px !important;
+                    height: 42px !important;
+                    padding: 9px 10px !important;
+                    border-radius: 4px !important;
+                    border: 1px solid #bbb !important;
+                    background: rgba(255,255,255,0.85) !important;
+                    color: inherit !important;
+                    resize: none !important;
+                    overflow-y: hidden !important;
+                    transition: height 0.1s ease !important;
+                    margin-top: 25px !important;
+                    /* Override any study-mode pointer/select suppression */
+                    pointer-events: auto !important;
+                    touch-action: auto !important;
+                    user-select: text !important;
+                    -webkit-user-select: text !important;
+                    cursor: text !important;
+                    opacity: 1 !important;
+                }
+                .wol-ta-field.open { display: block !important; }
+
+                /* Hide original disabled WOL gen-field */
+                .gen-field { display: none !important; }
+            `;
+            document.head.appendChild(s);
+        }
+
+        function getTextareaKey(pid) {
+            return STORE_KEY_PREFIX + window.location.pathname.replace(/\/$/, '') + '__' + pid;
+        }
+
+        function autoResize(ta) {
+            ta.style.setProperty('height', '42px', 'important');
+            ta.style.setProperty('overflow-y', 'hidden', 'important');
+            const h = Math.max(ta.scrollHeight, 42);
+            ta.style.setProperty('height', h + 'px', 'important');
+            ta.style.setProperty('overflow-y', h > 300 ? 'auto' : 'hidden', 'important');
+        }
+
+        function processGenField(genField) {
+            if (genField.dataset.wolTaProcessed) return;
+            genField.dataset.wolTaProcessed = 'true';
+
+            const pid = genField.getAttribute('data-pid') || genField.id
+                     || ('ta_' + Math.random().toString(36).slice(2));
+            const questionP = genField.previousElementSibling;
+
+            styleQuestionAsBox(questionP);
+            // Accept any block-level predecessor, not just p.qu
+            if (!questionP || !questionP.matches('p, div, h1, h2, h3, h4, li')) return;
+
+            // Make question paragraph the positioning parent for the toggle
+            if (!questionP.classList.contains('wol-qu-wrap')) {
+                questionP.classList.add('wol-qu-wrap');
+                questionP.style.position = 'relative';
+                questionP.style.paddingRight = '36px'; // room for 20px toggle + tap area
+            }
+
+            // ── Toggle arrow ──
+            const toggle = document.createElement('div');
+            toggle.className = 'wol-qu-toggle';
+            toggle.textContent = '+';
+            toggle.title = 'Show/hide notes';
+            questionP.appendChild(toggle);
+
+            // ── Textarea ──
+            const ta = document.createElement('textarea');
+            ta.className = 'wol-ta-field';
+            ta.setAttribute('rows', '1');
+            ta.setAttribute('spellcheck', 'true');
+            ta.setAttribute('autocorrect', 'on');
+            ta.setAttribute('autocapitalize', 'sentences');
+
+            // Insert textarea between question paragraph and hidden gen-field
+            genField.parentNode.insertBefore(ta, genField);
+
+            // Restore saved value
+            const savedVal = localStorage.getItem(getTextareaKey(pid));
+            if (savedVal) ta.value = savedVal;
+
+            // Open on reload only if saved text exists
+            if (savedVal) {
+                ta.classList.add('open');
+                setTimeout(() => autoResize(ta), 0);
+            }
+
+            // ── Toggle ──
+            function doToggle(e) {
+                e.preventDefault(); e.stopPropagation();
+                ta.classList.toggle('open');
+                if (ta.classList.contains('open')) setTimeout(() => { autoResize(ta); ta.focus(); }, 50);
+            }
+            toggle.addEventListener('touchend', doToggle, { passive: false });
+            toggle.addEventListener('click', doToggle);
+
+            // ── Persist + resize ──
+            ta.addEventListener('input', () => {
+                autoResize(ta);
+                const val = ta.value.trim();
+                if (val) localStorage.setItem(getTextareaKey(pid), ta.value);
+                else localStorage.removeItem(getTextareaKey(pid));
             });
+            ta.addEventListener('focus', () => autoResize(ta));
+
+            // ── Prevent study-mode touch suppression from blocking textarea taps ──
+            ta.addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
+            ta.addEventListener('touchend',   e => e.stopPropagation(), { passive: true });
+            ta.addEventListener('click',      e => e.stopPropagation());
+
+            // ── Guard against WOL re-disabling the field ──
+            new MutationObserver(() => {
+                if (ta.hasAttribute('disabled') || ta.hasAttribute('readonly')) {
+                    ta.removeAttribute('disabled');
+                    ta.removeAttribute('readonly');
+                }
+            }).observe(ta, { attributes: true, attributeFilter: ['disabled', 'readonly'] });
+        }
+
+        function processAll(root) {
+            root.querySelectorAll('.gen-field[data-pid]').forEach(processGenField);
+            root.querySelectorAll('p.qu').forEach(q => { if (!q.dataset.greyBoxDone) styleQuestionAsBox(q); });
+        }
+
+        processAll(document.body);
+
+        new MutationObserver(mutations => {
+            for (const m of mutations) {
+                for (const node of m.addedNodes) {
+                    if (node.nodeType !== Node.ELEMENT_NODE) continue;
+                    if (node.classList && node.classList.contains('gen-field')) processGenField(node);
+                    else processAll(node);
+                }
+            }
+        }).observe(document.body, { childList: true, subtree: true });
+
+        // Blur all open textareas before unload so browser doesn't
+        // restore focus to the question box on reload (causes collapse)
+        window.addEventListener('beforeunload', () => {
+            document.querySelectorAll('.wol-ta-field').forEach(ta => ta.blur());
         });
-        highlightObserverQB.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
-        const domObserverQB = new MutationObserver(() => processAllDisabledTextareas());
-        domObserverQB.observe(document.body, { childList: true, subtree: true });
-        processAllDisabledTextareas();
+
     })();
 
     // ─────────────────────────────────────────────────────────────
@@ -4254,8 +4433,6 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     // InitDB then apply everything
     initDB().then(() => {
         restoreHighlights(document.body);
-        setTimeout(() => restoreHighlights(document.body), 800);
-        setTimeout(() => restoreHighlights(document.body), 2000);
 
         // Reference symbol style element
         const refStyleEl = document.createElement('style');

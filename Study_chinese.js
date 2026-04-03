@@ -8,6 +8,7 @@
 // @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
 // @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
 // @grant        unsafeWindow
+// @require      https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese_version.js
 // ==/UserScript==
 
 // ─────────────────────────────────────────────────────────────

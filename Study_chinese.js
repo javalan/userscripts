@@ -8,7 +8,9 @@
 // @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
 // @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
 // @grant        unsafeWindow
-// @require      https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese_version.js?v=4.0
+// @grant        GM_xmlhttpRequest
+// @grant        GM.xmlHttpRequest
+// @connect      apple.helioho.st
 // ==/UserScript==
 
 // ─────────────────────────────────────────────────────────────
@@ -284,13 +286,39 @@
     // 1. Version check via live fetch (always current)
     // ─────────────────────────────────────────────────────────────
     (function checkVersion() {
-        if (!window.STUDY_CHINESE_VERSION) return;
-        const data = window.STUDY_CHINESE_VERSION;
-        const local = String(CURRENT_VERSION);
-        const remote = String(data.version);
-        console.log("LOCAL:", local);
-        console.log("REMOTE:", remote);
-        if (compareVersions(local, remote) < 0) showUpdateToast(data);
+        const url = 'https://apple.helioho.st/Study_chinese_version.js?_=' + Date.now();
+
+        function processVersionText(text) {
+            try {
+                const vMatch = text.match(/version:\s*"([^"]+)"/);
+                const vMatch2 = text.match(/install_video:\s*"([^"]+)"/);
+                if (!vMatch) return;
+                const data = { version: vMatch[1], install_video: vMatch2 ? vMatch2[1] : '' };
+                const local = String(CURRENT_VERSION);
+                const remote = String(data.version);
+                console.log("LOCAL:", local);
+                console.log("REMOTE:", remote);
+                if (compareVersions(local, remote) < 0) showUpdateToast(data);
+            } catch(e) {}
+        }
+
+        if (typeof GM_xmlhttpRequest !== 'undefined') {
+            GM_xmlhttpRequest({
+                method: 'GET', url: url,
+                onload: (r) => processVersionText(r.responseText),
+                onerror: () => {}
+            });
+        } else if (typeof GM !== 'undefined' && typeof GM.xmlHttpRequest !== 'undefined') {
+            GM.xmlHttpRequest({
+                method: 'GET', url: url,
+                onload: (r) => processVersionText(r.responseText),
+                onerror: () => {}
+            });
+        } else if (window.STUDY_CHINESE_VERSION) {
+            processVersionText(JSON.stringify(window.STUDY_CHINESE_VERSION)
+                .replace(/"version":"/, 'version: "')
+                .replace(/"install_video":"/, 'install_video: "'));
+        }
     })();
 
     // ─────────────────────────────────────────────────────────────

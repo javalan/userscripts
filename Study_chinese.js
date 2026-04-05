@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WOL Unified (Pinyin · Highlighter · Sync · Question Boxes)
 // @namespace    wol-unified
-// @version      5.0
+// @version      4.0
 // @description  Study/pinyin mode, 4-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
@@ -10,7 +10,7 @@
 // @grant        unsafeWindow
 // @grant        GM_xmlhttpRequest
 // @grant        GM.xmlHttpRequest
-// @connect      apple.helioho.st
+// @connect      raw.githubusercontent.com
 // ==/UserScript==
 
 // ─────────────────────────────────────────────────────────────
@@ -33,7 +33,7 @@
 (function() {
     'use strict';
 
-    const CURRENT_VERSION = "5.0";
+    const CURRENT_VERSION = "4.0";
 
     function compareVersions(local, remote) {
         const l = local.split('.').map(Number);
@@ -286,7 +286,7 @@
     // 1. Version check via live fetch (always current)
     // ─────────────────────────────────────────────────────────────
     (function checkVersion() {
-        const url = 'https://apple.helioho.st/Study_chinese_version.js?_=' + Date.now();
+        const url = 'https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese_version.js?_=' + Date.now();
 
         function processVersionText(text) {
             try {

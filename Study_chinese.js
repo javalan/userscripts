@@ -8,7 +8,7 @@
 // @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
 // @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
 // @grant        unsafeWindow
-// @require      https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese_version.js
+// @require      https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese_version.js?v=3.5
 // ==/UserScript==
 
 // ─────────────────────────────────────────────────────────────
@@ -281,24 +281,16 @@
     }
 
     // ─────────────────────────────────────────────────────────────
-    // 1. Version check using @require file (no fetch, CSP safe)
+    // 1. Version check via live fetch (always current)
     // ─────────────────────────────────────────────────────────────
     (function checkVersion() {
-
         if (!window.STUDY_CHINESE_VERSION) return;
-
         const data = window.STUDY_CHINESE_VERSION;
-
         const local = String(CURRENT_VERSION);
         const remote = String(data.version);
-
         console.log("LOCAL:", local);
         console.log("REMOTE:", remote);
-
-        if (compareVersions(local, remote) < 0) {
-            showUpdateToast(data);
-        }
-
+        if (compareVersions(local, remote) < 0) showUpdateToast(data);
     })();
 
     // ─────────────────────────────────────────────────────────────
@@ -394,6 +386,7 @@ const T = {
         quickLinks:       { en: 'Quick Links', ko: '빠른 링크', ja: 'クイックリンク', es: 'Accesos rápidos' },
         navDailyText:     { en: 'Daily Text', ko: '오늘의 성구', ja: 'デイリーテキスト', es: 'Texto del día' },
         navWatchtower:    { en: 'Watchtower', ko: '파수대', ja: '塔の見張り', es: 'La Atalaya' },
+        navEnjoyLife:     { en: 'Enjoy Life', ko: '행복한 삶', ja: '幸せに暮らす', es: 'Disfrute de la vida' },
         syncTitle:        { en: 'Direct Sync', ko: '직접 동기화', ja: 'ダイレクト同期', es: 'Sincronización directa' },
         syncPinyin:       { en: 'Sync Pinyin', ko: '병음 동기화', ja: 'ピンイン同期', es: 'Sincronizar Pinyin' },
         playback:         { en: 'Inline audio playback', ko: '인라인 오디오 재생', ja: 'インライン音声再生', es: 'Reproducción de audio' },
@@ -1450,6 +1443,12 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             hidePanel();
             showSyncToast(t('watchtower'));
             setTimeout(() => window.location.assign(window.location.origin + '/cmn-Hans/wol/meetings/r23/lp-chs-rb'), 1000);
+            return 'async';
+        }));
+        qlSection.appendChild(makeNavBtn(t('navEnjoyLife'), () => {
+            hidePanel();
+            showSyncToast(t('navEnjoyLife'));
+            setTimeout(() => window.location.assign('https://wol.jw.org/cmn-Hans/wol/publication/r23/lp-chs-rb/lff/0'), 1000);
             return 'async';
         }));
         panel.appendChild(qlSection);
@@ -3466,6 +3465,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     ['pointerdown','mousedown','click'].forEach(evt => {
         document.addEventListener(evt, (e) => {
             if (!document.getElementById('wol_hl_float_palette')) return;
+            if (e.target.closest('a')) return;
             if (e.target.closest('p.qu')) e.stopImmediatePropagation();
         }, { capture: true });
     });

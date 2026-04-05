@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         WOL Unified (Pinyin · Highlighter · Sync · Question Boxes)
 // @namespace    wol-unified
-// @version      3.5
+// @version      4.0
 // @description  Study/pinyin mode, 4-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
 // @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
 // @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
 // @grant        unsafeWindow
-// @require      https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese_version.js?v=3.5
+// @require      https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese_version.js?v=4.0
 // ==/UserScript==
 
 // ─────────────────────────────────────────────────────────────
@@ -31,7 +31,7 @@
 (function() {
     'use strict';
 
-    const CURRENT_VERSION = "3.5";
+    const CURRENT_VERSION = "4.0";
 
     function compareVersions(local, remote) {
         const l = local.split('.').map(Number);

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         WOL Unified (Pinyin · Highlighter · Sync · Question Boxes)
 // @namespace    wol-unified
-// @version      2.6
-// @description  Study/pinyin mode, 3-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
+// @version      3.5
+// @description  Study/pinyin mode, 4-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
 // @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
@@ -31,7 +31,7 @@
 (function() {
     'use strict';
 
-    const CURRENT_VERSION = "2.6";
+    const CURRENT_VERSION = "3.5";
 
     function compareVersions(local, remote) {
         const l = local.split('.').map(Number);
@@ -604,9 +604,16 @@ body.wol-highlighter-mode:not(.wol-playback-enabled) #contextMenu {
 body.wol-compact ul.documentMenu li { line-height: 1.75 !important; }
 
 /* ── Compact mode ── */
-body.wol-compact p, body.wol-compact .sb, body.wol-compact .sc, body.wol-compact li,
+body.wol-compact p, body.wol-compact .sb, body.wol-compact .sc,
 body.wol-compact h1, body.wol-compact h2, body.wol-compact h3, body.wol-compact h4,
-body.wol-compact .sl, body.wol-compact .sz, body.wol-compact .sm, body.wol-compact .sn {
+body.wol-compact .sl, body.wol-compact .sz, body.wol-compact .sm, body.wol-compact .sn,
+body.wol-compact fieldset legend,
+body.wol-compact fieldset label,
+body.wol-compact fieldset .gen-field,
+body.wol-compact .gen-field label {
+    line-height: 3em !important;
+}
+body.wol-compact #article li, body.wol-compact .article li, body.wol-compact .mainContent li {
     line-height: 3em !important;
 }
 body.wol-compact .sl, body.wol-compact .sz,
@@ -3527,7 +3534,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         for (const li of document.querySelectorAll('.documentMenu li.toggle')) { if (pattern.test(li.textContent)) return li; }
         return null;
     };
-    const findReferenceToggle = () => findToggleItem(/Reference Symbols|脚注符号|참조 기호|ふりがな|Símbolos de las notas/i);
+    const findReferenceToggle = () => findToggleItem(/Reference Symbols|脚注符号|참조 기호|ふりがな|Símbolos de las notas|\+.*\*|\*.*\+/i);
     const findNativePinyinToggle = () => findToggleItem(/拼音|Pinyin|pinyin/i);
     const isEnglishPage = () => CURRENT_LANG_CONFIG.isPage();
     const isChinesePage = () => location.href.includes('/lp-chs') || location.href.includes('/cmn-Hans/');
@@ -3615,9 +3622,11 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             let absTop = 0, node = el;
             while (node) { absTop += node.offsetTop; node = node.offsetParent; }
             window.scrollTo({ top: absTop - offset, behavior: 'smooth' });
-            const origBg = el.style.background;
-            el.style.background = '#fff9c0';
-            setTimeout(() => { el.style.background = origBg; }, 1000);
+            if (!el.closest('.gen-field, fieldset, .du-bgColor--warmGray-50')) {
+                const origBg = el.style.background;
+                el.style.background = '#fff9c0';
+                setTimeout(() => { el.style.background = origBg; }, 1000);
+            }
         }, delay);
     }
 
@@ -3970,6 +3979,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         // ── Shared helper: style a question paragraph as a grey box ──
         function styleQuestionAsBox(questionP) {
             if (!questionP || questionP.dataset.greyBoxDone) return;
+            if (!questionP.matches('p.qu, p[data-pid], h1[data-pid], h2[data-pid], h3[data-pid], h4[data-pid]')) return;
             questionP.style.backgroundColor = '#f2f2f2';
             questionP.style.borderLeft = '6px solid #c6c6c6';
             questionP.style.padding = '10px 12px';
@@ -4100,8 +4110,8 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 }
                 .wol-ta-field.open { display: block !important; }
 
-                /* Hide original disabled WOL gen-field */
-                .gen-field { display: none !important; }
+                /* Hide only gen-field containers that hold a textarea (our custom one replaces them) */
+                .gen-field[data-wol-ta-hidden] { display: none !important; }
             `;
             document.head.appendChild(s);
         }
@@ -4120,15 +4130,22 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
 
         function processGenField(genField) {
             if (genField.dataset.wolTaProcessed) return;
+            // Only process gen-fields that contain a disabled textarea (WOL study notes)
+            // Mark as "seen" only when textarea is present; otherwise stay unprocessed so
+            // the MutationObserver can retry when the textarea is injected later.
+            if (!genField.querySelector('textarea:disabled')) {
+                genField.dataset.wolTaPending = 'true';
+                return;
+            }
             genField.dataset.wolTaProcessed = 'true';
+            genField.setAttribute('data-wol-ta-hidden', 'true');
 
             const pid = genField.getAttribute('data-pid') || genField.id
                      || ('ta_' + Math.random().toString(36).slice(2));
             const questionP = genField.previousElementSibling;
-
+            if (!questionP || questionP.classList.contains('gen-field')) return;
             styleQuestionAsBox(questionP);
-            // Accept any block-level predecessor, not just p.qu
-            if (!questionP || !questionP.matches('p, div, h1, h2, h3, h4, li')) return;
+            if (!questionP.matches('p, div, h1, h2, h3, h4, li')) return;
 
             // Make question paragraph the positioning parent for the toggle
             if (!questionP.classList.contains('wol-qu-wrap')) {
@@ -4199,10 +4216,17 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
 
         function processAll(root) {
             root.querySelectorAll('.gen-field[data-pid]').forEach(processGenField);
-            root.querySelectorAll('p.qu').forEach(q => { if (!q.dataset.greyBoxDone) styleQuestionAsBox(q); });
         }
 
         processAll(document.body);
+
+        // Retry any gen-fields whose textarea was already present but missed on first pass
+        document.querySelectorAll('.gen-field[data-wol-ta-pending]').forEach(gf => {
+            if (gf.querySelector('textarea:disabled')) {
+                delete gf.dataset.wolTaPending;
+                processGenField(gf);
+            }
+        });
 
         new MutationObserver(mutations => {
             for (const m of mutations) {
@@ -4212,6 +4236,13 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                     else processAll(node);
                 }
             }
+            // Retry any gen-fields that were seen before their textarea was ready
+            document.querySelectorAll('.gen-field[data-wol-ta-pending]').forEach(gf => {
+                if (gf.querySelector('textarea:disabled')) {
+                    delete gf.dataset.wolTaPending;
+                    processGenField(gf);
+                }
+            });
         }).observe(document.body, { childList: true, subtree: true });
 
         // Blur all open textareas before unload so browser doesn't

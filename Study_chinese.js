@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WOL Unified (Pinyin · Highlighter · Sync · Question Boxes)
 // @namespace    wol-unified
-// @version      4.3
+// @version      4.4
 // @description  Study/pinyin mode, 4-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
@@ -33,7 +33,7 @@
 (function() {
     'use strict';
 
-    const CURRENT_VERSION = "4.3";
+    const CURRENT_VERSION = "4.4";
 
     function compareVersions(local, remote) {
         const l = local.split('.').map(Number);

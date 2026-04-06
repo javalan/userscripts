@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        WOL Highlighter
 // @namespace   https://wol.jw.org
-// @version     1.1
+// @version     1.0
 // @description 4-colour highlighter for iOS/iPadOS — save, restore, export/import
 // @match       https://wol.jw.org/*
 // @run-at      document-end
@@ -17,7 +17,7 @@
 // ─────────────────────────────────────────────────────────────
 // VERSION CHECK
 // ─────────────────────────────────────────────────────────────
-const CURRENT_VERSION = "1.1";
+const CURRENT_VERSION = "1.0";
 
 function compareVersions(local, remote) {
     const l = local.split('.').map(Number);

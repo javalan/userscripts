@@ -1,21 +1,23 @@
 // ==UserScript==
 // @name        WOL Highlighter
 // @namespace   https://wol.jw.org
-// @version     1.0
+// @version     1.1
 // @description 4-colour highlighter for iOS/iPadOS — save, restore, export/import
 // @match       https://wol.jw.org/*
 // @run-at      document-end
 // @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/highlighter.js
 // @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/highlighter.js
 // @grant       unsafeWindow
-// @require     https://raw.githubusercontent.com/javalan/userscripts/main/highlighter_version.js
+// @grant       GM_xmlhttpRequest
+// @grant       GM.xmlHttpRequest
+// @connect     raw.githubusercontent.com
 // ==/UserScript==
 (function () {
 
 // ─────────────────────────────────────────────────────────────
 // VERSION CHECK
 // ─────────────────────────────────────────────────────────────
-const CURRENT_VERSION = "1.0";
+const CURRENT_VERSION = "1.1";
 
 function compareVersions(local, remote) {
     const l = local.split('.').map(Number);
@@ -118,10 +120,30 @@ function openFullscreenVideo(videoURL) {
 }
 
 (function checkVersion() {
-    if (!window.HIGHLIGHTER_VERSION) return;
-    const data = window.HIGHLIGHTER_VERSION;
-    if (compareVersions(CURRENT_VERSION, data.version) < 0) {
-        showUpdateToast(data);
+    const url = 'https://raw.githubusercontent.com/javalan/userscripts/main/highlighter_version.js?_=' + Date.now();
+
+    function processVersionText(text) {
+        try {
+            const vMatch = text.match(/version:\s*"([^"]+)"/);
+            const vMatch2 = text.match(/install_video:\s*"([^"]+)"/);
+            if (!vMatch) return;
+            const data = { version: vMatch[1], install_video: vMatch2 ? vMatch2[1] : '' };
+            if (compareVersions(CURRENT_VERSION, data.version) < 0) showUpdateToast(data);
+        } catch(e) {}
+    }
+
+    if (typeof GM_xmlhttpRequest !== 'undefined') {
+        GM_xmlhttpRequest({
+            method: 'GET', url: url,
+            onload: (r) => processVersionText(r.responseText),
+            onerror: () => {}
+        });
+    } else if (typeof GM !== 'undefined' && typeof GM.xmlHttpRequest !== 'undefined') {
+        GM.xmlHttpRequest({
+            method: 'GET', url: url,
+            onload: (r) => processVersionText(r.responseText),
+            onerror: () => {}
+        });
     }
 })();
 
@@ -129,20 +151,20 @@ function openFullscreenVideo(videoURL) {
 // i18n — EN / CHS
 // ─────────────────────────────────────────────────────────────
 const T = {
-    exportHL:         { en: '↑  Export highlights',        zh: '↑  导出高亮' },
-    importHL:         { en: '↓  Import highlights',        zh: '↓  导入高亮' },
-    clearHL:          { en: '🗑  Clear all highlights',     zh: '🗑  清除所有高亮' },
-    confirmClear:     { en: 'Delete all highlights?',       zh: '删除所有高亮？' },
-    allCleared:       { en: 'All highlights cleared',       zh: '所有高亮已清除' },
-    promptFilename:   { en: 'Enter filename for export:',  zh: '输入导出文件名：' },
-    noHighlights:     { en: 'No highlights to export',      zh: '没有可导出的高亮' },
+    exportHL:         { en: '↑  Export',                        zh: '↑  导出' },
+    importHL:         { en: '↓  Import',                        zh: '↓  导入' },
+    clearHL:          { en: '🗑  Clear highlights/notes',        zh: '🗑  清除高亮/笔记' },
+    confirmClear:     { en: 'Delete all highlights and notes?',  zh: '删除所有高亮和笔记？' },
+    allCleared:       { en: 'All highlights and notes cleared',  zh: '所有高亮和笔记已清除' },
+    promptFilename:   { en: 'Enter filename for export:',       zh: '输入导出文件名：' },
+    noHighlights:     { en: 'No highlights or notes to export',  zh: '没有可导出的高亮或笔记' },
     exported:         { en: (n) => `Exported ${n} page${n===1?'':'s'}`, zh: (n) => `已导出 ${n} 页` },
     imported:         { en: (n,e) => `Imported ${n} pages${e>0?` (${e} errors)`:''}`, zh: (n,e) => `已导入 ${n} 页${e>0?`（${e} 个错误）`:''}` },
-    invalidFormat:    { en: 'Invalid file format',          zh: '文件格式无效' },
-    dbNotReady:       { en: 'Database not ready',           zh: '数据库未就绪' },
-    selectFirst:      { en: 'Select text first',            zh: '请先选择文字' },
+    invalidFormat:    { en: 'Invalid file format',              zh: '文件格式无效' },
+    dbNotReady:       { en: 'Database not ready',               zh: '数据库未就绪' },
+    selectFirst:      { en: 'Select text first',                zh: '请先选择文字' },
     selectionComplex: { en: (e) => 'Selection too complex: ' + e, zh: (e) => '选择过于复杂：' + e },
-    errorReading:     { en: (e) => 'Error: ' + e,          zh: (e) => '错误：' + e },
+    errorReading:     { en: (e) => 'Error: ' + e,              zh: (e) => '错误：' + e },
 };
 function t(key, ...args) {
     const entry = T[key]; if (!entry) return key;
@@ -157,6 +179,15 @@ const safeWindow = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window
 const hlColors = ['#fff176', '#b9f6ca', '#ffe0b2', '#ead5f5'];
 let currentRange = null;
 let db = null;
+
+const _saveTimers = new WeakMap();
+function debouncedSave(container) {
+    if (_saveTimers.has(container)) clearTimeout(_saveTimers.get(container));
+    _saveTimers.set(container, setTimeout(() => {
+        _saveTimers.delete(container);
+        saveHighlights(container);
+    }, 400));
+}
 
 // ─────────────────────────────────────────────────────────────
 // PANEL CSS
@@ -309,7 +340,7 @@ function showFloatingPalette() {
     if (document.getElementById('wol_hl_float_palette')) return;
     const palette = document.createElement('div');
     palette.id = 'wol_hl_float_palette';
-    palette.style.cssText = 'position:fixed;z-index:2147483646;background:#f0f0f0;border:1px solid #d0d0d0;border-radius:8px;padding:0 10px;height:44px;display:flex;align-items:center;gap:13px;box-shadow:0 2px 10px rgba(0,0,0,0.12);-webkit-user-select:none;user-select:none;touch-action:none;top:0;left:0;';
+    palette.style.cssText = 'position:fixed;z-index:500;background:#f0f0f0;border:1px solid #d0d0d0;border-radius:8px;padding:0 10px;height:44px;display:flex;align-items:center;gap:13px;box-shadow:0 2px 10px rgba(0,0,0,0.12);-webkit-user-select:none;user-select:none;touch-action:none;top:0;left:0;';
 
     const handle = document.createElement('div');
     handle.style.cssText = 'color:#bbb;font-size:15px;padding:0 2px;line-height:1;flex-shrink:0;';
@@ -319,7 +350,10 @@ function showFloatingPalette() {
     hlColors.forEach(c => {
         const dot = document.createElement('div');
         dot.style.cssText = 'width:24px;height:24px;border-radius:50%;background:' + (c === '#fff176' ? '#ffd600' : c) + ';border:1.5px solid rgba(0,0,0,0.15);flex-shrink:0;box-shadow:0 1px 3px rgba(0,0,0,0.15);';
-        dot.addEventListener('touchend', e => { e.preventDefault(); e.stopPropagation(); applyHighlightColor(c); }, { passive: false });
+        dot.addEventListener('touchend', e => {
+            e.preventDefault(); e.stopPropagation();
+            applyHighlightColor(c);
+        }, { passive: false });
         palette.appendChild(dot);
     });
 
@@ -364,8 +398,13 @@ function hideFloatingPalette() {
     if (p) p.remove();
 }
 
+// Global cooldown prevents multiple highlight actions from a single touch event
+let _hlCooldown = false;
 function applyHighlightColor(c) {
     if (!currentRange) { alert(t('selectFirst')); return; }
+    if (_hlCooldown) return;
+    _hlCooldown = true;
+    setTimeout(() => { _hlCooldown = false; }, 600);
     const rangeToHighlight = currentRange.cloneRange();
     currentRange = null;
     window.getSelection && window.getSelection().removeAllRanges();
@@ -402,7 +441,7 @@ function removeHighlight(span) {
     const id = span.getAttribute('data-highlight-id');
     const container = span.closest('.tooltip, .tooltipContainer') || document.body;
     container.querySelectorAll(`span[data-highlight-id="${id}"]`).forEach(s => unwrapSpan(s));
-    setTimeout(() => saveHighlights(container), 100);
+    debouncedSave(container);
 }
 
 function addRemoveListener(span) {
@@ -528,8 +567,9 @@ function smartHighlight(range, color, skipSave = false) {
     }
 
     if (!skipSave) {
-        const container = document.querySelector('.tooltip, .tooltipContainer') || document.body;
-        setTimeout(() => saveHighlights(container), 100);
+        const anySpan = document.querySelector(`span[data-highlight-id="${highlightID}"]`);
+        const container = (anySpan && anySpan.closest('.tooltip, .tooltipContainer')) || document.body;
+        debouncedSave(container);
     }
 }
 
@@ -552,51 +592,6 @@ function simpleHash(str) {
     for (let i = 0; i < str.length; i++) { hash = ((hash << 5) - hash) + str.charCodeAt(i); hash = hash & hash; }
     return Math.abs(hash).toString(36);
 }
-function getAllSyncKeys(url) {
-    const keys = [];
-    const sr = extractScriptureRef(url); if (sr) keys.push('tooltip_' + sr);
-    const ar = extractArticleRef(url);   if (ar) keys.push('tooltip_' + ar);
-    keys.push(url.split('#')[0]);
-    return keys;
-}
-function getPageID(container = document.body) {
-    const tooltip = container.closest('.tooltip, .tooltipContainer');
-    if (tooltip) {
-        const link = tooltip.querySelector('a.bibleCitation, a.publicationCitation, a.pub-');
-        if (link) {
-            const href = link.getAttribute('href');
-            if (href) {
-                const ar = extractArticleRef(href); if (ar) return 'tooltip_' + ar;
-                return 'tooltip_' + href.split('#')[0];
-            }
-        }
-        return 'tooltip_' + simpleHash(tooltip.textContent.trim().substring(0, 500));
-    }
-    const ar = extractArticleRef(window.location.pathname); if (ar) return ar;
-    const sr = extractScriptureRef(window.location.pathname); if (sr) return sr;
-    return window.location.pathname + window.location.search;
-}
-function getBaseReference(container = document.body) {
-    const tooltip = container.closest('.tooltip, .tooltipContainer');
-    if (tooltip) {
-        const link = tooltip.querySelector('a.bibleCitation, a.publicationCitation, a.pub-');
-        if (link) {
-            const href = link.getAttribute('href');
-            if (href) {
-                const ar = extractArticleRef(href); if (ar) return ar;
-                return href.split('#')[0];
-            }
-        }
-    }
-    const sr = extractScriptureRef(window.location.pathname); if (sr) return sr;
-    const ar = extractArticleRef(window.location.pathname);   if (ar) return ar;
-    return window.location.pathname + window.location.search;
-}
-function getCurrentSyncKeys() {
-    const keys = [];
-    const sr = extractScriptureRef(window.location.pathname); if (sr) keys.push('tooltip_' + sr);
-    return keys;
-}
 
 // ─────────────────────────────────────────────────────────────
 // INDEXEDDB
@@ -617,10 +612,31 @@ function initDB() {
 // ─────────────────────────────────────────────────────────────
 // SAVE / RESTORE
 // ─────────────────────────────────────────────────────────────
+function getKeys(container) {
+    const tooltip = container.closest('.tooltip, .tooltipContainer');
+    if (tooltip) {
+        const link = tooltip.querySelector('a.bibleCitation, a.publicationCitation, a.pub-');
+        if (link) {
+            const href = link.getAttribute('href');
+            if (href) {
+                const abs = new URL(href, window.location.href).pathname;
+                const ar = extractArticleRef(abs) || extractScriptureRef(abs)
+                        || extractArticleRef(href) || extractScriptureRef(href);
+                if (ar) return [ar, 'tooltip_' + ar];
+                const rawKey = abs.split('#')[0];
+                return [rawKey, 'tooltip_' + rawKey];
+            }
+        }
+        return ['tooltip_' + simpleHash(tooltip.textContent.trim().substring(0, 500))];
+    }
+    const path = window.location.pathname;
+    const ar = extractArticleRef(path) || extractScriptureRef(path) || path;
+    return [ar];  // main article: one key only, no tooltip mirror needed
+}
+
 function saveHighlights(container = document.body) {
     if (!db) return;
-    const pageID = getPageID(container);
-    const baseRef = getBaseReference(container);
+    const keys = getKeys(container);
     const highlights = [];
     const highlightGroups = new Map();
     container.querySelectorAll('span[data-highlight-id]').forEach(span => {
@@ -628,6 +644,7 @@ function saveHighlights(container = document.body) {
         if (!highlightGroups.has(id)) highlightGroups.set(id, []);
         highlightGroups.get(id).push(span);
     });
+
     function skipPinyinFilter(n) {
         let p = n.parentElement;
         while (p) {
@@ -661,76 +678,42 @@ function saveHighlights(container = document.body) {
         if (startIdx === -1 || endIdx === -1) return spanGroup.map(s => getRbText(s)).join('');
         return nodes.slice(startIdx, endIdx + 1).map(n => n.textContent).join('');
     }
+
     highlightGroups.forEach((spanGroup, id) => {
         if (spanGroup.length === 0) return;
         highlights.push({ id, color: spanGroup[0].style.backgroundColor, text: getTextBetweenSpans(spanGroup) });
     });
+
     const transaction = db.transaction(['highlights'], 'readwrite');
     const store = transaction.objectStore('highlights');
     if (highlights.length > 0) {
-        store.put({ pageID, highlights });
-        if (baseRef && baseRef !== pageID) store.put({ pageID: baseRef, highlights });
-        if (container === document.body) getCurrentSyncKeys().forEach(key => store.put({ pageID: key, highlights }));
-        if (container === document.body) {
-            const rawPath = window.location.pathname;
-            store.put({ pageID: rawPath, highlights });
-            const ar = extractArticleRef(rawPath);
-            if (ar) store.put({ pageID: 'tooltip_' + ar, highlights });
-        }
-        if (container.closest('.tooltip, .tooltipContainer')) {
-            const link = container.querySelector('a.bibleCitation, a.publicationCitation, a.pub-');
-            if (link) {
-                const href = link.getAttribute('href');
-                if (href) {
-                    const ar = extractArticleRef(href);
-                    if (ar) store.put({ pageID: 'tooltip_' + ar, highlights });
-                    store.put({ pageID: href.split('#')[0], highlights });
-                }
-            }
-        }
+        keys.forEach(key => store.put({ pageID: key, highlights }));
     } else {
-        store.delete(pageID);
-        if (baseRef && baseRef !== pageID) store.delete(baseRef);
-        if (container === document.body) getCurrentSyncKeys().forEach(key => store.delete(key));
-        if (container === document.body) {
-            const rawPath = window.location.pathname;
-            store.delete(rawPath);
-            const ar = extractArticleRef(rawPath);
-            if (ar) store.delete('tooltip_' + ar);
-        }
+        keys.forEach(key => store.delete(key));
     }
 }
 
 function restoreHighlights(container = document.body) {
     if (!db) return;
-    const pageID = getPageID(container);
-    const baseRef = getBaseReference(container);
-    let pageIDsToCheck = [pageID];
-    if (baseRef && baseRef !== pageID) pageIDsToCheck.push(baseRef);
-    if (container === document.body) pageIDsToCheck = pageIDsToCheck.concat(getCurrentSyncKeys());
-    if (container === document.body) {
-        const rawPath = window.location.pathname;
-        if (!pageIDsToCheck.includes(rawPath)) pageIDsToCheck.push(rawPath);
-        const ar = extractArticleRef(rawPath);
-        if (ar) {
-            const tooltipKey = 'tooltip_' + ar;
-            if (!pageIDsToCheck.includes(tooltipKey)) pageIDsToCheck.push(tooltipKey);
-        }
-    }
+    if (container.querySelector('span[data-highlight-id]')) return;
+
+    const keys = getKeys(container);
     const transaction = db.transaction(['highlights'], 'readonly');
     const store = transaction.objectStore('highlights');
     const allHighlights = new Map();
     let processed = 0;
-    pageIDsToCheck.forEach(id => {
+
+    keys.forEach(id => {
         const request = store.get(id);
         request.onsuccess = () => {
             processed++;
             const result = request.result;
             if (result && result.highlights)
                 result.highlights.forEach(h => { if (!allHighlights.has(h.text)) allHighlights.set(h.text, h); });
-            if (processed === pageIDsToCheck.length) {
+            if (processed === keys.length) {
                 const highlights = Array.from(allHighlights.values());
                 if (highlights.length === 0) return;
+
                 function pinyinFilter(node) {
                     let p = node.parentElement;
                     while (p) {
@@ -767,6 +750,7 @@ function restoreHighlights(container = document.body) {
                     }
                     return false;
                 }
+
                 const articleContainer = container.querySelector('#article, .article, #content, .synopsis') || container;
                 const paragraphs = Array.from(articleContainer.querySelectorAll('div[data-pid], p, div.v, div.sb, div.sc, li, div.du, div.dc, h1, h2, h3, h4'))
                     .filter(el => !el.closest('.documentNavigation, .noTooltips'));
@@ -792,8 +776,15 @@ function exportHighlights() {
     const request = store.getAll();
     request.onsuccess = () => {
         const allData = request.result;
-        if (allData.length === 0) { alert(t('noHighlights')); return; }
-        const combined = { pinyin: {}, highlights: allData };
+        // Collect notes (content keys only, skip legacy open-state keys)
+        const notes = {};
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith('wol_ta_') && !k.startsWith('wol_ta_open_'))
+                notes[k] = localStorage.getItem(k);
+        }
+        if (allData.length === 0 && !Object.keys(notes).length) { alert(t('noHighlights')); return; }
+        const combined = { highlights: allData, notes };
         const blob = new Blob([JSON.stringify(combined, null, 2)], { type: 'application/json' });
         const filename = prompt(t('promptFilename'));
         if (!filename) return;
@@ -830,8 +821,13 @@ function importHighlights() {
         reader.onload = (event) => {
             try {
                 const raw = JSON.parse(event.target.result);
+                // Support: old array format, highlights-only object, or combined with notes
                 const hlData = Array.isArray(raw) ? raw : (Array.isArray(raw.highlights) ? raw.highlights : null);
                 if (!hlData) { alert(t('invalidFormat')); return; }
+                // Restore notes if present
+                if (raw.notes && typeof raw.notes === 'object') {
+                    Object.entries(raw.notes).forEach(([k, v]) => localStorage.setItem(k, v));
+                }
                 const transaction = db.transaction(['highlights'], 'readwrite');
                 const store = transaction.objectStore('highlights');
                 let imported = 0, errors = 0;
@@ -850,7 +846,13 @@ function clearAllHighlights() {
     if (!confirm(t('confirmClear'))) return;
     const transaction = db.transaction(['highlights'], 'readwrite');
     const store = transaction.objectStore('highlights');
-    store.clear().onsuccess = () => { alert(t('allCleared')); setTimeout(() => window.location.reload(), 300); };
+    store.clear().onsuccess = () => {
+        Object.keys(localStorage)
+            .filter(k => k.startsWith('wol_ta_'))
+            .forEach(k => localStorage.removeItem(k));
+        alert(t('allCleared'));
+        setTimeout(() => window.location.reload(), 300);
+    };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -865,17 +867,13 @@ function addPaletteToTooltip(tooltip) {
     if (tooltipType) tooltipType.style.display = 'none';
     const tooltipPalette = document.createElement('div');
     tooltipPalette.className = 'hl_tooltip_palette';
-    tooltipPalette.style.cssText = 'display:flex !important;align-items:center;gap:6px;padding:4px 8px;flex-shrink:0;order:-1;';
+    tooltipPalette.style.cssText = 'display:flex !important;align-items:center;gap:13px;padding:4px 8px 4px 13px;flex-shrink:0;order:-1;';
     hlColors.forEach(c => {
         const btn = document.createElement('div');
-        btn.style.cssText = `width:16px;height:16px;border-radius:50%;cursor:pointer;border:1px solid #999;background:${c === '#fff176' ? '#ffd600' : c};flex-shrink:0;`;
+        btn.style.cssText = `width:20px;height:20px;border-radius:50%;cursor:pointer;border:1.5px solid rgba(0,0,0,0.15);background:${c === '#fff176' ? '#ffd600' : c};flex-shrink:0;box-shadow:0 1px 3px rgba(0,0,0,0.15);`;
         btn.addEventListener('touchend', e => {
             e.preventDefault(); e.stopPropagation();
-            if (!currentRange) { alert(t('selectFirst')); return; }
-            const rangeToHighlight = currentRange.cloneRange();
-            currentRange = null;
-            window.getSelection && window.getSelection().removeAllRanges();
-            try { smartHighlight(rangeToHighlight, c); } catch (err) { alert(t('selectionComplex', err.message)); }
+            applyHighlightColor(c);
         }, { passive: false });
         tooltipPalette.appendChild(btn);
     });
@@ -964,6 +962,7 @@ new MutationObserver(mutations => {
 // ─────────────────────────────────────────────────────────────
 document.addEventListener('touchstart', (e) => {
     if (!document.getElementById('wol_hl_float_palette')) return;
+    if (e.target.closest('a')) return;
     if (e.target.closest('p.qu')) e.stopImmediatePropagation();
 }, { capture: true, passive: true });
 
@@ -980,19 +979,11 @@ new MutationObserver(() => {
 // CLOSE TOOLTIP when context link clicked
 // ─────────────────────────────────────────────────────────────
 document.addEventListener('click', (e) => {
-
-    const link = e.target.closest(
-        '.tooltip a, .tooltipContainer a'
-    );
-
+    const link = e.target.closest('.tooltip a, .tooltipContainer a');
     if (!link) return;
-
     const tooltip = link.closest('.tooltip, .tooltipContainer');
     if (!tooltip) return;
-
-    // remove tooltip immediately
     tooltip.remove();
-
 }, true);
 
 // ─────────────────────────────────────────────────────────────
@@ -1005,8 +996,145 @@ document.addEventListener('click', (e) => {
 
 initDB().then(() => {
     restoreHighlights(document.body);
-    setTimeout(() => restoreHighlights(document.body), 800);
-    setTimeout(() => restoreHighlights(document.body), 2000);
 }).catch(err => console.error('WOL Highlighter: IndexedDB init failed:', err));
+
+// ─────────────────────────────────────────────────────────────
+// TEXTAREA ENABLER
+// ─────────────────────────────────────────────────────────────
+(function enableTextareas() {
+
+    (function injectTextareaStyles() {
+        if (document.getElementById('wol_ta_styles')) return;
+        const s = document.createElement('style');
+        s.id = 'wol_ta_styles';
+        s.textContent = `
+            .gen-field textarea[data-wol-enabled] {
+                display: block !important;
+                pointer-events: auto !important;
+                user-select: text !important;
+                -webkit-user-select: text !important;
+                touch-action: auto !important;
+                opacity: 1 !important;
+                cursor: text !important;
+                resize: none !important;
+                overflow-y: hidden !important;
+                box-sizing: border-box !important;
+                width: 100% !important;
+                font-size: 16px !important;
+                line-height: 24px !important;
+                height: 42px !important;
+                min-height: 42px !important;
+                padding: 9px 10px !important;
+                border-radius: 4px !important;
+                background: transparent !important;
+                transition: height 0.1s ease !important;
+            }
+        `;
+        document.head.appendChild(s);
+    })();
+
+    const STORE_KEY_PREFIX = 'wol_ta_';
+
+    function getTextareaKey(textarea) {
+        const field = textarea.closest('.gen-field[data-pid]');
+        const pid   = field ? field.getAttribute('data-pid') : textarea.id || textarea.name || 'unknown';
+        const path  = window.location.pathname.replace(/\/$/, '');
+        return STORE_KEY_PREFIX + path + '__' + pid;
+    }
+
+    function autoResize(textarea) {
+        textarea.style.setProperty('height', '42px', 'important');
+        textarea.style.setProperty('overflow-y', 'hidden', 'important');
+        const newH = Math.max(textarea.scrollHeight, 42);
+        textarea.style.setProperty('height', newH + 'px', 'important');
+        textarea.style.setProperty('overflow-y', newH > 300 ? 'auto' : 'hidden', 'important');
+    }
+
+    function saveValue(textarea) {
+        try {
+            const key = getTextareaKey(textarea);
+            if (textarea.value.trim()) localStorage.setItem(key, textarea.value);
+            else localStorage.removeItem(key);
+        } catch (_) {}
+    }
+
+    function restoreValue(textarea) {
+        try {
+            const key   = getTextareaKey(textarea);
+            const saved = localStorage.getItem(key);
+            if (saved) { textarea.value = saved; autoResize(textarea); }
+        } catch (_) {}
+    }
+
+    function enhanceTextarea(textarea) {
+        if (textarea.dataset.wolEnabled) return;
+        textarea.dataset.wolEnabled = '1';
+        textarea.removeAttribute('disabled');
+        textarea.removeAttribute('readonly');
+        textarea.setAttribute('rows', '1');
+        textarea.addEventListener('input',  () => { autoResize(textarea); saveValue(textarea); });
+        textarea.addEventListener('change', () => saveValue(textarea));
+        textarea.addEventListener('focus',  () => autoResize(textarea));
+        restoreValue(textarea);
+        autoResize(textarea);
+    }
+
+    function scanAndEnhance(root) {
+        root.querySelectorAll('.gen-field textarea').forEach(enhanceTextarea);
+    }
+
+    scanAndEnhance(document.body);
+
+    const reEnableObserver = new MutationObserver(mutations => {
+        for (const m of mutations) {
+            const ta = m.target;
+            if (ta.dataset.wolEnabled &&
+                (ta.hasAttribute('disabled') || ta.hasAttribute('readonly'))) {
+                ta.removeAttribute('disabled');
+                ta.removeAttribute('readonly');
+            }
+        }
+    });
+
+    function observeTextarea(textarea) {
+        reEnableObserver.observe(textarea, {
+            attributes: true,
+            attributeFilter: ['disabled', 'readonly']
+        });
+    }
+
+    document.querySelectorAll('.gen-field textarea').forEach(observeTextarea);
+
+    new MutationObserver(mutations => {
+        for (const m of mutations) {
+            for (const node of m.addedNodes) {
+                if (node.nodeType !== Node.ELEMENT_NODE) continue;
+                if (node.tagName === 'TEXTAREA' && node.closest('.gen-field')) {
+                    enhanceTextarea(node); observeTextarea(node); continue;
+                }
+                if (node.classList &&
+                    (node.classList.contains('gen-field') ||
+                     node.classList.contains('bodyTxt') ||
+                     node.classList.contains('article') ||
+                     node.classList.contains('tooltip') ||
+                     node.classList.contains('tooltipContainer') ||
+                     node.id === 'article')) {
+                    scanAndEnhance(node);
+                    node.querySelectorAll('.gen-field textarea').forEach(observeTextarea);
+                }
+            }
+        }
+    }).observe(document.body, { childList: true, subtree: true });
+
+    let _lastPath = location.pathname;
+    new MutationObserver(() => {
+        if (location.pathname !== _lastPath) {
+            _lastPath = location.pathname;
+            setTimeout(() => { scanAndEnhance(document.body); document.querySelectorAll('.gen-field textarea').forEach(observeTextarea); }, 400);
+            setTimeout(() => { scanAndEnhance(document.body); document.querySelectorAll('.gen-field textarea').forEach(observeTextarea); }, 1200);
+        }
+    }).observe(document.body, { childList: true, subtree: false });
+
+})();
 
 })();

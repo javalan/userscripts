@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WOL Unified (Pinyin · Highlighter · Sync · Question Boxes)
 // @namespace    wol-unified
-// @version      3.0
+// @version      3.1
 // @description  Study/pinyin mode, 4-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
@@ -30,32 +30,32 @@
     });
 })();
 
-(function() {
-    'use strict';
+    (function() {
+        'use strict';
 
-    const CURRENT_VERSION = "3.0";
+        const CURRENT_VERSION = "3.1";
 
-    function compareVersions(local, remote) {
-        const l = local.split('.').map(Number);
-        const r = remote.split('.').map(Number);
-        for (let i = 0; i < Math.max(l.length, r.length); i++) {
-            const li = l[i] || 0;
-            const ri = r[i] || 0;
-            if (li < ri) return -1;
-            if (li > ri) return 1;
+        function compareVersions(local, remote) {
+            const l = local.split('.').map(Number);
+            const r = remote.split('.').map(Number);
+            for (let i = 0; i < Math.max(l.length, r.length); i++) {
+                const li = l[i] || 0;
+                const ri = r[i] || 0;
+                if (li < ri) return -1;
+                if (li > ri) return 1;
+            }
+            return 0;
         }
-        return 0;
-    }
 
-    const _lang = (() => {
-        const l = (navigator.language || navigator.userLanguage || '').toLowerCase();
-        if (l.startsWith('ko')) return 'ko';
-        if (l.startsWith('ja')) return 'ja';
-        if (l.startsWith('es')) return 'es';
-        return 'en';
-    })();
+        const _lang = (() => {
+            const l = (navigator.language || navigator.userLanguage || '').toLowerCase();
+            if (l.startsWith('ko')) return 'ko';
+            if (l.startsWith('ja')) return 'ja';
+            if (l.startsWith('es')) return 'es';
+            return 'en';
+        })();
 
-    function showUpdateToast(versionData) {
+        function showUpdateToast(versionData) {
         if (localStorage.getItem('study_chinese_update_' + versionData.version)) return;
 
         const toast = document.createElement('div');
@@ -69,7 +69,7 @@
         toast.style.boxShadow = '0 3px 10px rgba(0,0,0,0.15)';
         toast.style.padding = '16px 18px';
         toast.style.zIndex = '999999';
-        toast.style.width = '180px';
+        toast.style.width = '185px';
         toast.style.display = 'flex';
         toast.style.flexDirection = 'column';
         toast.style.alignItems = 'center';
@@ -94,6 +94,25 @@
         };
         toast.appendChild(closeBtn);
 
+        const updateLabels = {
+            en: 'Update available 🔔',
+            ko: '업데이트 가능 🔔',
+            ja: 'アップデートあり 🔔',
+            es: 'Actualización disponible 🔔',
+        };
+        const watchLabels = {
+            en: '▶  How to update',
+            ko: '▶  업데이트 방법',
+            ja: '▶  更新方법',
+            es: '▶  Cómo actualizar',
+        };
+        const whatsNewLabels = {
+            en: "What's new:",
+            ko: '변경 사항:',
+            ja: '更新内容:',
+            es: 'Novedades:',
+        };
+
         const textContainer = document.createElement('div');
         textContainer.style.textAlign = 'center';
 
@@ -104,24 +123,32 @@
         heading.style.textTransform = 'uppercase';
         textContainer.appendChild(heading);
 
-        const updateLabels = {
-            en: 'Update available 🔔',
-            ko: '업데이트 가능 🔔',
-            ja: 'アップデートあり 🔔',
-            es: 'Actualización disponible 🔔',
-        };
-        const watchLabels = {
-            en: '▶  How to update',
-            ko: '▶  업데이트 방법',
-            ja: '▶  更新方法',
-            es: '▶  Cómo actualizar',
-        };
         const subheading = document.createElement('div');
         subheading.textContent = updateLabels[_lang] || updateLabels.en;
         subheading.style.fontWeight = 'normal';
         subheading.style.fontSize = '14px';
+        subheading.style.width = '100%';
+        subheading.style.wordBreak = 'keep-all';
         textContainer.appendChild(subheading);
+
         toast.appendChild(textContainer);
+
+        if (versionData.changelog) {
+            const changelogBox = document.createElement('div');
+            changelogBox.style.cssText = 'width:180px;box-sizing:border-box;background:#e8e8ed;border:1px solid #d0d0d5;border-radius:5px;padding:7px 10px;align-self:center;';
+
+            const changelogLabel = document.createElement('div');
+            changelogLabel.textContent = whatsNewLabels[_lang] || whatsNewLabels.en;
+            changelogLabel.style.cssText = 'font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#999;margin-bottom:3px;text-align:center;';
+
+            const changelogText = document.createElement('div');
+            changelogText.textContent = versionData.changelog;
+            changelogText.style.cssText = 'font-size:12px;color:#555;line-height:1.4;text-align:left;';
+
+            changelogBox.appendChild(changelogLabel);
+            changelogBox.appendChild(changelogText);
+            toast.appendChild(changelogBox);
+        }
 
         const videoBtn = document.createElement('button');
         videoBtn.textContent = watchLabels[_lang] || watchLabels.en;
@@ -133,7 +160,10 @@
         videoBtn.style.cursor = 'pointer';
         videoBtn.style.fontWeight = '500';
         videoBtn.style.fontSize = '14px';
+        videoBtn.style.width = '100%';
+        videoBtn.style.boxSizing = 'border-box';
         videoBtn.style.alignSelf = 'center';
+        videoBtn.style.marginTop = '4px';
         videoBtn.onclick = () => {
             if (versionData.install_video) {
                 openFullscreenVideo(versionData.install_video);
@@ -293,7 +323,27 @@
                 const vMatch = text.match(/version:\s*"([^"]+)"/);
                 const vMatch2 = text.match(/install_video:\s*"([^"]+)"/);
                 if (!vMatch) return;
-                const data = { version: vMatch[1], install_video: vMatch2 ? vMatch2[1] : '' };
+                let changelog = '';
+                // Try to extract multilingual changelog object
+                const clMatch = text.match(/changelog:\s*\{([\s\S]*?)\}/);
+                if (clMatch) {
+                    const enMatch = clMatch[1].match(/en:\s*"([^"]+)"/);
+                    const koMatch = clMatch[1].match(/ko:\s*"([^"]+)"/);
+                    const jaMatch = clMatch[1].match(/ja:\s*"([^"]+)"/);
+                    const esMatch = clMatch[1].match(/es:\s*"([^"]+)"/);
+                    const langMap = {
+                        en: enMatch ? enMatch[1] : '',
+                        ko: koMatch ? koMatch[1] : '',
+                        ja: jaMatch ? jaMatch[1] : '',
+                        es: esMatch ? esMatch[1] : ''
+                    };
+                    changelog = langMap[_lang] || langMap.en || '';
+                } else {
+                    // fallback: single string
+                    const clStr = text.match(/changelog:\s*"([^"]+)"/);
+                    if (clStr) changelog = clStr[1];
+                }
+                const data = { version: vMatch[1], install_video: vMatch2 ? vMatch2[1] : '', changelog };
                 const local = String(CURRENT_VERSION);
                 const remote = String(data.version);
                 console.log("LOCAL:", local);
@@ -425,7 +475,7 @@ const T = {
         importPinyin:     { en: '↓  Import from file', ko: '↓  파일에서 가져오기', ja: '↓  ファイルから読み込む', es: '↓  Importar desde archivo' },
         exportHL:         { en: '↑  Export highlights/notes', ko: '↑  형광펜/노트 내보내기', ja: '↑  ハイライト/メモを書き出す', es: '↑  Exportar marcados/notas' },
         importHL:         { en: '↓  Import highlights/notes', ko: '↓  형광펜/노트 가져오기', ja: '↓  ハイライト/メモを読み込む', es: '↓  Importar marcados/notas' },
-        clearHL:          { en: '🗑  Clear highlights/notes', ko: '🗑  모든 형광펜/노트 지우기', ja: '🗑  ハイライト/メモをすべて消去', es: '🗑  Borrar marcados/notas' },
+        clearHL:          { en: '✕  Clear highlights/notes', ko: '✕  모든 형광펜/노트 지우기', ja: '✕  ハイライト/メモをすべて消去', es: '✕  Borrar marcados/notas' },
         confirmResetPage: { en: 'Reset pinyin progress for this article?', ko: '이 글의 병음 학습을 초기화할까요?', ja: 'この記事のピンイン進捗をリセットしますか？', es: '¿Restablecer el progreso de pinyin de este artículo?' },
         confirmResetAll:  { en: 'Delete pinyin progress for ALL articles? This cannot be undone.', ko: '모든 글의 병음 학습을 삭제할까요? 되돌릴 수 없습니다.', ja: 'すべての記事のピンイン進捗を削除しますか？この操作は元に戻せません。', es: '¿Eliminar el progreso de pinyin de TODOS los artículos? Esta acción no se puede deshacer.' },
         confirmResetHL:   { en: 'Also delete ALL highlights and notes? This cannot be undone.', ko: '모든 형광펜과 노트도 삭제할까요? 되돌릴 수 없습니다.', ja: 'ハイライトとメモもすべて削除しますか？この操作は元に戻せません。', es: '¿Eliminar también TODOS los marcados y notas? Esta acción no se puede deshacer.' },
@@ -2647,6 +2697,12 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         return m ? `scripture_${m[1]}_${m[2]}` : null;
     }
     function extractArticleRef(url) {
+        const syncMatch = url.match(/\/(?:d|m|b)sync\/(?:[^\/]+\/){1,4}(lp-chs(?:-rb)?)\/(\d+)/);
+        if (syncMatch) return `article_lp-chs${syncMatch[1].includes('-rb') ? '-rb' : ''}_${syncMatch[2]}`;
+
+        const chsMatch = url.match(/\/(?:d|m|b|meetings)\/(?:r23\/)(lp-chs(?:-rb)?)\/(\d+)/);
+        if (chsMatch) return `article_${chsMatch[1]}_${chsMatch[2]}`;
+
         const m1 = url.match(/\/(?:d|dsync|b|bsync|m|msync|meetings|lv|pc)\/((?:[^\/]+\/)*[^\/]+?)\/(\d+)(?:[^#\/\?]*)/);
         if (m1) return `article_${m1[1].replace(/\//g,'_')}_${m1[2]}`;
         const m2 = url.match(/\/(w|wp|g|km|mwb)\/[^\/]+\/[^\/]+\/([^#\/\?]+)/);
@@ -2902,11 +2958,26 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
 
     function snapRangeToRubyBoundaries(range) {
         let startNode = range.startContainer, endNode = range.endContainer;
+
         let startRuby = startNode;
         while (startRuby && startRuby.tagName !== 'RUBY') startRuby = startRuby.parentElement;
+
         let endRuby = endNode;
         while (endRuby && endRuby.tagName !== 'RUBY') endRuby = endRuby.parentElement;
-        if (startRuby) range.setStartBefore(startRuby);
+
+        if (startRuby) {
+            const startsAtRubyBeginning = (
+                range.startContainer === startRuby ||
+                (range.startContainer.nodeType === Node.TEXT_NODE && range.startOffset === 0 &&
+                range.startContainer.parentElement === startRuby.querySelector('rb'))
+            );
+            if (startsAtRubyBeginning) {
+                range.setStartBefore(startRuby);
+            } else {
+                range.setStartAfter(startRuby);
+            }
+        }
+
         if (endRuby) range.setEndAfter(endRuby);
     }
 
@@ -3303,39 +3374,31 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     function _importUnified(silentPinyin) {
         if (!db) { alert(t('dbNotReady')); return; }
         const input = document.createElement('input'); input.type = 'file'; input.accept = 'application/json,.json';
+        input.style.cssText = 'position:fixed;top:-100px;left:-100px;opacity:0;';
+        document.body.appendChild(input);
         input.onchange = (e) => {
+            document.body.removeChild(input);
             const file = e.target.files[0]; if (!file) return;
             const reader = new FileReader();
             reader.onerror = () => alert('Error reading file: ' + reader.error);
             reader.onload = (event) => {
                 try {
                     const raw = JSON.parse(event.target.result);
-                    // Detect format:
-                    // Unified: { pinyin: {}, highlights: [...], notes: {} }
-                    // Old HL-only: [{pageID, highlights}, ...]
                     let hlData, pinyinData, notesData;
                     if (Array.isArray(raw)) {
-                        // Old format — highlights array only
                         hlData = raw; pinyinData = null; notesData = null;
                     } else if (raw && Array.isArray(raw.highlights)) {
-                        // Unified format
                         hlData = raw.highlights;
                         pinyinData = (raw.pinyin && Object.keys(raw.pinyin).length > 0) ? raw.pinyin : null;
                         notesData = (raw.notes && Object.keys(raw.notes).length > 0) ? raw.notes : null;
                     } else { alert(t('invalidFormat')); return; }
-
-                    // Restore notes unconditionally (they're device-specific path keys)
                     if (notesData) {
                         Object.entries(notesData).forEach(([k, v]) => localStorage.setItem(k, v));
                     }
-
-                    // Ask about pinyin if found and not silent
                     const doPinyin = pinyinData && (silentPinyin || confirm(t('pinyinFound')));
-
                     if (doPinyin) {
                         Object.entries(pinyinData).forEach(([k, v]) => localStorage.setItem(k, JSON.stringify(v)));
                     }
-
                     if (hlData && hlData.length > 0) {
                         if (!db.objectStoreNames.contains('highlights')) { alert(t('dbNotReady')); return; }
                         const transaction = db.transaction(['highlights'], 'readwrite');
@@ -3350,7 +3413,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                     }
                 } catch(err) { alert(t('invalidJSON')); }
             };
-            setTimeout(() => reader.readAsText(file), 300);
+            reader.readAsText(file);
         };
         input.click();
     }
@@ -4145,7 +4208,10 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         }
 
         function getTextareaKey(pid) {
-            return STORE_KEY_PREFIX + window.location.pathname.replace(/\/$/, '') + '__' + pid;
+            let path = window.location.pathname.replace(/\/$/, '');
+            const syncMatch = path.match(/\/(?:d|m|b)sync\/(?:[^\/]+\/){1,4}(lp-chs(?:-rb)?)\/(\d+)/);
+            if (syncMatch) path = '/cmn-Hans/wol/d/r23/' + syncMatch[1] + '/' + syncMatch[2];
+            return STORE_KEY_PREFIX + path + '__' + pid;
         }
 
         function autoResize(ta) {

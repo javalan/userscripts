@@ -2059,7 +2059,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         // Set it unconditionally whenever the toggle is on — this is what reveals
         // the player. wol-audio-active (which unlocks the context menu and patches
         // par/verse links) is only set once the player is actually rendered.
-        if (isIOS) document.body.classList.add('wol-player-visible');
+        document.body.classList.add('wol-player-visible');
         document.body.classList.add('wol-audio-active');
         const cm = document.getElementById('contextMenu');
         if (cm) cm.style.removeProperty('display');
@@ -2070,7 +2070,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     }
     function disableStudyAudio() {
         document.body.classList.remove('wol-audio-active');
-        if (isIOS) document.body.classList.remove('wol-player-visible');
+        document.body.classList.remove('wol-player-visible');
         const cm = document.getElementById('contextMenu');
         if (cm) cm.style.setProperty('display', 'none', 'important');
     }

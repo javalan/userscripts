@@ -5,8 +5,8 @@
 // @description  Study/pinyin mode, 4-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
-// @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
-// @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
+// @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese2.user.js
+// @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese2.user.js
 // @grant        unsafeWindow
 // @grant        GM_xmlhttpRequest
 // @grant        GM.xmlHttpRequest
@@ -2059,7 +2059,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         // Set it unconditionally whenever the toggle is on — this is what reveals
         // the player. wol-audio-active (which unlocks the context menu and patches
         // par/verse links) is only set once the player is actually rendered.
-        document.body.classList.add('wol-player-visible');
+        if document.body.classList.add('wol-player-visible');
         document.body.classList.add('wol-audio-active');
         const cm = document.getElementById('contextMenu');
         if (cm) cm.style.removeProperty('display');
@@ -2070,7 +2070,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     }
     function disableStudyAudio() {
         document.body.classList.remove('wol-audio-active');
-        document.body.classList.remove('wol-player-visible');
+        if document.body.classList.remove('wol-player-visible');
         const cm = document.getElementById('contextMenu');
         if (cm) cm.style.setProperty('display', 'none', 'important');
     }

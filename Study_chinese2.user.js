@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WOL Unified (Pinyin · Highlighter · Sync · Question Boxes)
 // @namespace    wol-unified
-// @version      2.6
+// @version      3.1
 // @description  Study/pinyin mode, 4-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
@@ -699,7 +699,11 @@ body.wol-study-mode .wol-char-pinyin {
     -webkit-user-select: none; user-select: none; pointer-events: none;
 }
 body.wol-study-mode ruby rb,
-body.wol-study-mode ruby rb * { -webkit-user-select: text; user-select: text; }
+body.wol-study-mode ruby rb * { 
+    -webkit-user-select: text; 
+    user-select: text;
+    pointer-events: auto;  /* allow selection handles in Firefox */
+}
 @media (hover: hover) and (pointer: fine) {
     body.wol-study-mode:not(.wol-highlighter-mode) ruby rb::selection,
     body.wol-study-mode:not(.wol-highlighter-mode) ruby rb *::selection { background: #b3d4ff; }
@@ -1670,7 +1674,10 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                             localStorage.setItem(PINYIN_STORAGE_KEY, JSON.stringify(savedProgress));
                         }
                     } else if (!paletteOpen) {
-                        // Single tap without palette — show temporarily (skip if pinned)
+                    // Single tap without palette — show temporarily (skip if pinned)
+                    // But if user made a text selection (iOS long-press), don't steal it
+                        const activeSel = window.getSelection();
+                        if (activeSel && !activeSel.isCollapsed) return;
                         e.stopPropagation();
                         const p = wrap.querySelector('.wol-char-pinyin');
                         cLastTapTime = now; cLastTapWrap = wrap;
@@ -1761,6 +1768,9 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 if (e.target.closest('.tooltip, .tooltipContainer')) return;
                 if (Date.now() - rTouchStartTime > 500) return;
                 closeDocumentMenuIfOpen();
+                // If a text selection exists (iOS long-press), let it stand
+                const _activeSel = window.getSelection();
+                if (_activeSel && !_activeSel.isCollapsed) return;
                 e.stopPropagation(); e.preventDefault();
                 window.getSelection && window.getSelection().removeAllRanges();
                 const rb = ruby.querySelector('rb'), rt = ruby.querySelector('rt');

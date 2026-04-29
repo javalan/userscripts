@@ -1,14 +1,16 @@
 // ==UserScript==
 // @name         WOL Unified (Pinyin · Highlighter · Sync · Question Boxes)
 // @namespace    wol-unified
-// @version      2.5
-// @description  Study/pinyin mode, 3-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
+// @version      2.6
+// @description  Study/pinyin mode, 4-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
-// @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.user.js
-// @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.user.js
+// @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
+// @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
 // @grant        unsafeWindow
-// @require      https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese_version.js
+// @grant        GM_xmlhttpRequest
+// @grant        GM.xmlHttpRequest
+// @connect      raw.githubusercontent.com
 // ==/UserScript==
 
 // ─────────────────────────────────────────────────────────────
@@ -28,33 +30,36 @@
     });
 })();
 
-(function() {
-    'use strict';
+    (function() {
+        'use strict';
 
-    const CURRENT_VERSION = "2.5";
+        const CURRENT_VERSION = "3.1";
 
-    function compareVersions(local, remote) {
-        const l = local.split('.').map(Number);
-        const r = remote.split('.').map(Number);
-        for (let i = 0; i < Math.max(l.length, r.length); i++) {
-            const li = l[i] || 0;
-            const ri = r[i] || 0;
-            if (li < ri) return -1;
-            if (li > ri) return 1;
+        function compareVersions(local, remote) {
+            const l = local.split('.').map(Number);
+            const r = remote.split('.').map(Number);
+            for (let i = 0; i < Math.max(l.length, r.length); i++) {
+                const li = l[i] || 0;
+                const ri = r[i] || 0;
+                if (li < ri) return -1;
+                if (li > ri) return 1;
+            }
+            return 0;
         }
-        return 0;
-    }
 
-    const _lang = (() => {
-        const l = (navigator.language || navigator.userLanguage || '').toLowerCase();
-        if (l.startsWith('ko')) return 'ko';
-        if (l.startsWith('ja')) return 'ja';
-        if (l.startsWith('es')) return 'es';
-        return 'en';
-    })();
+        const _lang = (() => {
+            const l = (navigator.language || navigator.userLanguage || '').toLowerCase();
+            if (l.startsWith('ko')) return 'ko';
+            if (l.startsWith('ja')) return 'ja';
+            if (l.startsWith('es')) return 'es';
+            return 'en';
+        })();
 
-    function showUpdateToast(versionData) {
+        function showUpdateToast(versionData) {
         if (localStorage.getItem('study_chinese_update_' + versionData.version)) return;
+
+        safeWindow._wolFontInitSeen = false;
+        safeWindow._wolFontRestoring = false;
 
         const toast = document.createElement('div');
         toast.style.position = 'fixed';
@@ -67,7 +72,7 @@
         toast.style.boxShadow = '0 3px 10px rgba(0,0,0,0.15)';
         toast.style.padding = '16px 18px';
         toast.style.zIndex = '999999';
-        toast.style.width = '180px';
+        toast.style.width = '185px';
         toast.style.display = 'flex';
         toast.style.flexDirection = 'column';
         toast.style.alignItems = 'center';
@@ -92,6 +97,25 @@
         };
         toast.appendChild(closeBtn);
 
+        const updateLabels = {
+            en: 'Update available 🔔',
+            ko: '업데이트 가능 🔔',
+            ja: 'アップデートあり 🔔',
+            es: 'Actualización disponible 🔔',
+        };
+        const watchLabels = {
+            en: '▶  How to update',
+            ko: '▶  업데이트 방법',
+            ja: '▶  更新方법',
+            es: '▶  Cómo actualizar',
+        };
+        const whatsNewLabels = {
+            en: "What's new:",
+            ko: '변경 사항:',
+            ja: '更新内容:',
+            es: 'Novedades:',
+        };
+
         const textContainer = document.createElement('div');
         textContainer.style.textAlign = 'center';
 
@@ -102,24 +126,32 @@
         heading.style.textTransform = 'uppercase';
         textContainer.appendChild(heading);
 
-        const updateLabels = {
-            en: 'Update available 🔔',
-            ko: '업데이트 가능 🔔',
-            ja: 'アップデートあり 🔔',
-            es: 'Actualización disponible 🔔',
-        };
-        const watchLabels = {
-            en: '▶  How to update',
-            ko: '▶  업데이트 방법',
-            ja: '▶  更新方法',
-            es: '▶  Cómo actualizar',
-        };
         const subheading = document.createElement('div');
         subheading.textContent = updateLabels[_lang] || updateLabels.en;
         subheading.style.fontWeight = 'normal';
         subheading.style.fontSize = '14px';
+        subheading.style.width = '100%';
+        subheading.style.wordBreak = 'keep-all';
         textContainer.appendChild(subheading);
+
         toast.appendChild(textContainer);
+
+        if (versionData.changelog) {
+            const changelogBox = document.createElement('div');
+            changelogBox.style.cssText = 'width:180px;box-sizing:border-box;background:#e8e8ed;border:1px solid #d0d0d5;border-radius:5px;padding:7px 10px;align-self:center;';
+
+            const changelogLabel = document.createElement('div');
+            changelogLabel.textContent = whatsNewLabels[_lang] || whatsNewLabels.en;
+            changelogLabel.style.cssText = 'font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#999;margin-bottom:3px;text-align:center;';
+
+            const changelogText = document.createElement('div');
+            changelogText.textContent = versionData.changelog;
+            changelogText.style.cssText = 'font-size:12px;color:#555;line-height:1.4;text-align:left;';
+
+            changelogBox.appendChild(changelogLabel);
+            changelogBox.appendChild(changelogText);
+            toast.appendChild(changelogBox);
+        }
 
         const videoBtn = document.createElement('button');
         videoBtn.textContent = watchLabels[_lang] || watchLabels.en;
@@ -131,7 +163,10 @@
         videoBtn.style.cursor = 'pointer';
         videoBtn.style.fontWeight = '500';
         videoBtn.style.fontSize = '14px';
+        videoBtn.style.width = '100%';
+        videoBtn.style.boxSizing = 'border-box';
         videoBtn.style.alignSelf = 'center';
+        videoBtn.style.marginTop = '4px';
         videoBtn.onclick = () => {
             if (versionData.install_video) {
                 openFullscreenVideo(versionData.install_video);
@@ -281,24 +316,62 @@
     }
 
     // ─────────────────────────────────────────────────────────────
-    // 1. Version check using @require file (no fetch, CSP safe)
+    // 1. Version check via live fetch (always current)
     // ─────────────────────────────────────────────────────────────
     (function checkVersion() {
+        const url = 'https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese_version.js?_=' + Date.now();
 
-        if (!window.STUDY_CHINESE_VERSION) return;
-
-        const data = window.STUDY_CHINESE_VERSION;
-
-        const local = String(CURRENT_VERSION);
-        const remote = String(data.version);
-
-        console.log("LOCAL:", local);
-        console.log("REMOTE:", remote);
-
-        if (compareVersions(local, remote) < 0) {
-            showUpdateToast(data);
+        function processVersionText(text) {
+            try {
+                const vMatch = text.match(/version:\s*"([^"]+)"/);
+                const vMatch2 = text.match(/install_video:\s*"([^"]+)"/);
+                if (!vMatch) return;
+                let changelog = '';
+                // Try to extract multilingual changelog object
+                const clMatch = text.match(/changelog:\s*\{([\s\S]*?)\}/);
+                if (clMatch) {
+                    const enMatch = clMatch[1].match(/en:\s*"([^"]+)"/);
+                    const koMatch = clMatch[1].match(/ko:\s*"([^"]+)"/);
+                    const jaMatch = clMatch[1].match(/ja:\s*"([^"]+)"/);
+                    const esMatch = clMatch[1].match(/es:\s*"([^"]+)"/);
+                    const langMap = {
+                        en: enMatch ? enMatch[1] : '',
+                        ko: koMatch ? koMatch[1] : '',
+                        ja: jaMatch ? jaMatch[1] : '',
+                        es: esMatch ? esMatch[1] : ''
+                    };
+                    changelog = langMap[_lang] || langMap.en || '';
+                } else {
+                    // fallback: single string
+                    const clStr = text.match(/changelog:\s*"([^"]+)"/);
+                    if (clStr) changelog = clStr[1];
+                }
+                const data = { version: vMatch[1], install_video: vMatch2 ? vMatch2[1] : '', changelog };
+                const local = String(CURRENT_VERSION);
+                const remote = String(data.version);
+                console.log("LOCAL:", local);
+                console.log("REMOTE:", remote);
+                if (compareVersions(local, remote) < 0) showUpdateToast(data);
+            } catch(e) {}
         }
 
+        if (typeof GM_xmlhttpRequest !== 'undefined') {
+            GM_xmlhttpRequest({
+                method: 'GET', url: url,
+                onload: (r) => processVersionText(r.responseText),
+                onerror: () => {}
+            });
+        } else if (typeof GM !== 'undefined' && typeof GM.xmlHttpRequest !== 'undefined') {
+            GM.xmlHttpRequest({
+                method: 'GET', url: url,
+                onload: (r) => processVersionText(r.responseText),
+                onerror: () => {}
+            });
+        } else if (window.STUDY_CHINESE_VERSION) {
+            processVersionText(JSON.stringify(window.STUDY_CHINESE_VERSION)
+                .replace(/"version":"/, 'version: "')
+                .replace(/"install_video":"/, 'install_video: "'));
+        }
     })();
 
     // ─────────────────────────────────────────────────────────────
@@ -394,6 +467,7 @@ const T = {
         quickLinks:       { en: 'Quick Links', ko: '빠른 링크', ja: 'クイックリンク', es: 'Accesos rápidos' },
         navDailyText:     { en: 'Daily Text', ko: '오늘의 성구', ja: 'デイリーテキスト', es: 'Texto del día' },
         navWatchtower:    { en: 'Watchtower', ko: '파수대', ja: '塔の見張り', es: 'La Atalaya' },
+        navEnjoyLife:     { en: 'Enjoy Life', ko: '행복한 삶', ja: '幸せに暮らす', es: 'Disfrute de la vida' },
         syncTitle:        { en: 'Direct Sync', ko: '직접 동기화', ja: 'ダイレクト同期', es: 'Sincronización directa' },
         syncPinyin:       { en: 'Sync Pinyin', ko: '병음 동기화', ja: 'ピンイン同期', es: 'Sincronizar Pinyin' },
         playback:         { en: 'Inline audio playback', ko: '인라인 오디오 재생', ja: 'インライン音声再生', es: 'Reproducción de audio' },
@@ -404,7 +478,7 @@ const T = {
         importPinyin:     { en: '↓  Import from file', ko: '↓  파일에서 가져오기', ja: '↓  ファイルから読み込む', es: '↓  Importar desde archivo' },
         exportHL:         { en: '↑  Export highlights/notes', ko: '↑  형광펜/노트 내보내기', ja: '↑  ハイライト/メモを書き出す', es: '↑  Exportar marcados/notas' },
         importHL:         { en: '↓  Import highlights/notes', ko: '↓  형광펜/노트 가져오기', ja: '↓  ハイライト/メモを読み込む', es: '↓  Importar marcados/notas' },
-        clearHL:          { en: '🗑  Clear highlights/notes', ko: '🗑  모든 형광펜/노트 지우기', ja: '🗑  ハイライト/メモをすべて消去', es: '🗑  Borrar marcados/notas' },
+        clearHL:          { en: '✕  Clear highlights/notes', ko: '✕  모든 형광펜/노트 지우기', ja: '✕  ハイライト/メモをすべて消去', es: '✕  Borrar marcados/notas' },
         confirmResetPage: { en: 'Reset pinyin progress for this article?', ko: '이 글의 병음 학습을 초기화할까요?', ja: 'この記事のピンイン進捗をリセットしますか？', es: '¿Restablecer el progreso de pinyin de este artículo?' },
         confirmResetAll:  { en: 'Delete pinyin progress for ALL articles? This cannot be undone.', ko: '모든 글의 병음 학습을 삭제할까요? 되돌릴 수 없습니다.', ja: 'すべての記事のピンイン進捗を削除しますか？この操作は元に戻せません。', es: '¿Eliminar el progreso de pinyin de TODOS los artículos? Esta acción no se puede deshacer.' },
         confirmResetHL:   { en: 'Also delete ALL highlights and notes? This cannot be undone.', ko: '모든 형광펜과 노트도 삭제할까요? 되돌릴 수 없습니다.', ja: 'ハイライトとメモもすべて削除しますか？この操作は元に戻せません。', es: '¿Eliminar también TODOS los marcados y notas? Esta acción no se puede deshacer.' },
@@ -428,6 +502,17 @@ const T = {
         linkNotFound:     { en: 'Link not found on this page.', ko: '이 페이지에서 링크를 찾을 수 없습니다.', ja: 'このページにリンクが見つかりません。', es: 'Enlace no encontrado en esta página.' },
         noWatchtower:     { en: 'Could not find Watchtower link.', ko: '파수대 링크를 찾을 수 없습니다.', ja: '塔の見張りのリンクが見つかりません。', es: 'No se encontró el enlace de La Atalaya.' },
         noDailyText:      { en: 'Could not find Daily Text link.', ko: '오늘의 성구 링크를 찾을 수 없습니다.', ja: 'テキストのリンクが見つかりません。', es: 'No se encontrado el enlace del texto del día.' },
+        feedbackTitle:    { en: 'Feedback', ko: '피드백', ja: 'フィードバック', es: 'Comentarios' },
+        reportBug:        { en: 'Report a bug', ko: '버그 신고', ja: 'バグを報告', es: 'Reportar un error' },
+        sendSuggestion:   { en: 'Send a suggestion', ko: '제안 보내기', ja: '提案を送る', es: 'Enviar sugerencia' },
+        rateTitle:        { en: 'Rate this app', ko: '앱 평가하기', ja: 'アプリを評価', es: 'Calificar esta app' },
+        rateThankYou:     { en: 'Thank you for your feedback!', ko: '피드백 감사합니다!', ja: 'フィードバックありがとうございます！', es: '¡Gracias por tus comentarios!' },
+        cancelLabel:      { en: 'Cancel', ko: '취소', ja: 'キャンセル', es: 'Cancelar' },
+        submitLabel:      { en: 'Submit', ko: '제출', ja: '送信', es: 'Enviar' },
+        rateAppBtn:       { en: 'Rate this app', ko: '앱 평가하기', ja: 'アプリを評価', es: 'Calificar esta app' },
+        rateModalTitle:   { en: 'Rate this app', ko: '앱 평가하기', ja: 'アプリを評価する', es: 'Calificar esta app' },
+        bugModalTitle:    { en: 'Report a bug', ko: '버그 신고', ja: 'バグを報告', es: 'Reportar un error' },
+        suggestModalTitle:{ en: 'Send a suggestion', ko: '제안 보내기', ja: '提案を送る', es: 'Enviar sugerencia' },
     };
 
     // t(key, ...args) — look up translated string
@@ -436,6 +521,165 @@ const T = {
         if (!entry) return key;
         const val = entry[_lang] || entry.en;
         return typeof val === 'function' ? val(...args) : val;
+    }
+
+    // ── Google Form URL with browser language ──
+    const FEEDBACK_FORM_BASE = 'https://docs.google.com/forms/d/e/1FAIpQLSfNiT0bHB480vD50ZqYu8UHQJ3ac5V5jKnQUZ08AUK7vse1Rg/viewform';
+    const RATING_ENDPOINT = 'https://script.google.com/macros/s/AKfycbyhYFGLGx7rkhEDiKfsCIBURjCniETliMQkiKPYQ30NrAjy0PZcY2Lbs-8c5XopW3v4nw/exec';
+
+    function getFeedbackURL() {
+        const lang = (navigator.language || navigator.userLanguage || 'en').toLowerCase();
+        // Map to Google's hl codes
+        const hl = lang.startsWith('ko') ? 'ko'
+                 : lang.startsWith('ja') ? 'ja'
+                 : lang.startsWith('es') ? 'es'
+                 : 'en';
+        return FEEDBACK_FORM_BASE + '?hl=' + hl;
+    }
+
+    function sendRating(rating) {
+        fetch(RATING_ENDPOINT, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain' },
+            body: JSON.stringify({
+                type: 'rating',
+                rating,
+                userAgent: navigator.userAgent
+            })
+        });
+    }
+
+    function sendFeedback(type, message) {
+        fetch(RATING_ENDPOINT, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain' },
+            body: JSON.stringify({
+                type,
+                message,
+                userAgent: navigator.userAgent
+            })
+        });
+    }
+
+    // ── Shared thank-you toast (reuses the app's existing toast style) ──
+    function showThankYouToast() {
+        const msg = t('rateThankYou');
+        const toast = document.createElement('div');
+        toast.textContent = msg;
+        toast.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(30,30,30,0.92);color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:15px;font-weight:500;padding:12px 22px;border-radius:999px;z-index:2147483647;pointer-events:none;white-space:nowrap;box-shadow:0 4px 18px rgba(0,0,0,0.28);opacity:0;transition:opacity 0.2s ease';
+        document.body.appendChild(toast);
+        requestAnimationFrame(() => { toast.style.opacity = '1'; });
+        setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 2200);
+    }
+
+    // ── iOS-style modal popup (dark overlay, centred card) ──
+    function showFeedbackModal({ title, hasInput, onSubmit }) {
+        // Overlay
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:2147483640;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;';
+
+        // Card
+        const card = document.createElement('div');
+        card.style.cssText = 'background:#f9f9f9;border-radius:14px;width:100%;max-width:320px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;box-shadow:0 8px 32px rgba(0,0,0,0.32);';
+
+        // Title
+        const titleEl = document.createElement('div');
+        titleEl.textContent = title;
+        titleEl.style.cssText = 'font-size:17px;font-weight:600;color:#1a1a1a;text-align:center;padding:20px 20px 12px 20px;';
+        card.appendChild(titleEl);
+
+        // Input (optional)
+        let inputEl = null;
+        if (hasInput) {
+            inputEl = document.createElement('textarea');
+            inputEl.rows = 3;
+            inputEl.style.cssText = 'display:block;width:100%;box-sizing:border-box;border:none;border-top:1px solid #e0e0e0;border-bottom:1px solid #e0e0e0;background:#fff;font-size:15px;color:#1a1a1a;padding:12px 16px;resize:none;outline:none;font-family:inherit;';
+            inputEl.placeholder = '...';
+            card.appendChild(inputEl);
+        }
+
+        // Star row (for rating modal)
+        let starSubmitValue = 0;
+        let starEls = [];
+        if (!hasInput) {
+            const RATE_KEY = 'wol_user_rating';
+            const savedRating = parseInt(localStorage.getItem(RATE_KEY) || '0', 10);
+            starSubmitValue = savedRating;
+
+            const starsRow = document.createElement('div');
+            starsRow.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:8px;padding:8px 20px 16px 20px;border-top:1px solid #e0e0e0;border-bottom:1px solid #e0e0e0;background:#fff;';
+
+            function renderModalStars(n) {
+                starEls.forEach((s, i) => {
+                    s.textContent = i < n ? '★' : '☆';
+                    s.style.color = i < n ? '#f5a623' : '#bbb';
+                });
+            }
+
+            for (let i = 1; i <= 5; i++) {
+                const star = document.createElement('span');
+                star.textContent = i <= savedRating ? '★' : '☆';
+                star.style.cssText = 'font-size:32px;cursor:pointer;color:' + (i <= savedRating ? '#f5a623' : '#bbb') + ';-webkit-user-select:none;user-select:none;transition:color 0.12s;';
+                const idx = i;
+                const handleStar = (ev) => {
+                    ev.stopPropagation();
+                    starSubmitValue = idx;
+                    renderModalStars(idx);
+                };
+                star.addEventListener('click', handleStar);
+                star.addEventListener('touchend', (ev) => { ev.preventDefault(); handleStar(ev); }, { passive: false });
+                starEls.push(star);
+                starsRow.appendChild(star);
+            }
+            card.appendChild(starsRow);
+        }
+
+        // Button row
+        const btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display:flex;align-items:center;border-top:1px solid #e0e0e0;';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.textContent = t('cancelLabel');
+        cancelBtn.style.cssText = 'flex:1;padding:14px 0;background:none;border:none;border-right:1px solid #e0e0e0;font-size:16px;color:#666;cursor:pointer;font-family:inherit;';
+
+        const submitBtn = document.createElement('button');
+        submitBtn.textContent = t('submitLabel');
+        submitBtn.style.cssText = 'flex:1;padding:14px 0;background:none;border:none;font-size:16px;font-weight:600;color:#007aff;cursor:pointer;font-family:inherit;';
+
+        function closeModal() { overlay.remove(); }
+
+        cancelBtn.addEventListener('click', closeModal);
+        cancelBtn.addEventListener('touchend', (e) => { e.preventDefault(); closeModal(); }, { passive: false });
+
+        submitBtn.addEventListener('click', () => {
+            const value = hasInput ? (inputEl.value.trim()) : starSubmitValue;
+            if (!value || value === 0) return;
+            closeModal();
+            onSubmit(value);
+            showThankYouToast();
+        });
+        submitBtn.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            const value = hasInput ? (inputEl.value.trim()) : starSubmitValue;
+            if (!value || value === 0) return;
+            closeModal();
+            onSubmit(value);
+            showThankYouToast();
+        }, { passive: false });
+
+        btnRow.appendChild(cancelBtn);
+        btnRow.appendChild(submitBtn);
+        card.appendChild(btnRow);
+        overlay.appendChild(card);
+
+        // Close on overlay tap
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
+        overlay.addEventListener('touchend', (e) => { if (e.target === overlay) { e.preventDefault(); closeModal(); } }, { passive: false });
+
+        document.body.appendChild(overlay);
+        if (inputEl) setTimeout(() => inputEl.focus(), 100);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -448,7 +692,7 @@ const T = {
         s.textContent = `
 /* ── Pinyin core ── */
 ruby rt { transition: opacity 0.15s ease; cursor: pointer; }
-body.wol-study-mode ruby { cursor: pointer; touch-action: manipulation; }
+ruby { cursor: pointer; touch-action: auto; }
 body.wol-study-mode ruby rt,
 body.wol-study-mode ruby rt *,
 body.wol-study-mode .wol-char-pinyin {
@@ -460,11 +704,8 @@ body.wol-study-mode ruby rb * { -webkit-user-select: text; user-select: text; }
     body.wol-study-mode:not(.wol-highlighter-mode) ruby rb::selection,
     body.wol-study-mode:not(.wol-highlighter-mode) ruby rb *::selection { background: #b3d4ff; }
 }
-@media (hover: none) {
-    body.wol-study-mode:not(.wol-highlighter-mode) ruby rb::selection,
-    body.wol-study-mode:not(.wol-highlighter-mode) ruby rb *::selection { background: transparent; }
-}
-body.wol-study-mode .wol-char-wrap { -webkit-user-select: text; user-select: text; }
+
+body.wol-study-mode .wol-char-wrap { -webkit-user-select: text; user-select: text; touch-action: auto; }
 body.wol-study-mode ruby rb::selection,
 body.wol-study-mode ruby *::selection,
 body.wol-study-mode .wol-char-wrap::selection,
@@ -483,6 +724,11 @@ body.wol-highlighter-mode .wol-char-wrap *::selection { background: #b3d4ff; }
 .v.jwac-textHighlight ruby {
     background: none !important; outline: none !important;
     box-shadow: none !important; text-decoration: none !important;
+}
+/* ── Selection guard ── */
+body.wol-study-mode #article p, body.wol-study-mode #article div:not(.wol-char-wrap), body.wol-study-mode #article span:not(.wol-char-pinyin), 
+body.wol-study-mode .article p, body.wol-study-mode .article div:not(.wol-char-wrap), body.wol-study-mode .article span:not(.wol-char-pinyin) {
+    -webkit-user-select: text !important; user-select: text !important;
 }
 body.wol-study-mode:not(.wol-audio-active) #contextMenu { display: none !important; pointer-events: none !important; }
 
@@ -604,9 +850,16 @@ body.wol-highlighter-mode:not(.wol-playback-enabled) #contextMenu {
 body.wol-compact ul.documentMenu li { line-height: 1.75 !important; }
 
 /* ── Compact mode ── */
-body.wol-compact p, body.wol-compact .sb, body.wol-compact .sc, body.wol-compact li,
+body.wol-compact p, body.wol-compact .sb, body.wol-compact .sc,
 body.wol-compact h1, body.wol-compact h2, body.wol-compact h3, body.wol-compact h4,
-body.wol-compact .sl, body.wol-compact .sz, body.wol-compact .sm, body.wol-compact .sn {
+body.wol-compact .sl, body.wol-compact .sz, body.wol-compact .sm, body.wol-compact .sn,
+body.wol-compact fieldset legend,
+body.wol-compact fieldset label,
+body.wol-compact fieldset .gen-field,
+body.wol-compact .gen-field label {
+    line-height: 3em !important;
+}
+body.wol-compact #article li, body.wol-compact .article li, body.wol-compact .mainContent li {
     line-height: 3em !important;
 }
 body.wol-compact .sl, body.wol-compact .sz,
@@ -704,6 +957,58 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
 
     function getPanelOpenTime() { return safeWindow.__wolPanelOpenTime || 0; }
 
+    // ── Shared: builds the Feedback section (with Rate button) appended to any panel ──
+    function buildFeedbackAndRateSections(panel) {
+        // ── Divider ──
+        const d1 = document.createElement('div'); d1.className = 'pp-divider'; panel.appendChild(d1);
+
+        // ── Feedback section ──
+        const fbSection = document.createElement('div'); fbSection.className = 'pp-section';
+        fbSection.style.padding = '6px 0 8px 0';
+        const fbTitle = document.createElement('div'); fbTitle.className = 'pp-section-title';
+        fbTitle.style.padding = '6px 14px 2px 14px'; fbTitle.textContent = t('feedbackTitle');
+        fbSection.appendChild(fbTitle);
+
+        function makeFbBtn(label, onClick) {
+            const btn = document.createElement('button');
+            btn.className = 'pp-btn pp-nav';
+            btn.textContent = label;
+            btn.style.cssText = 'margin:10px 14px;width:calc(100% - 28px);box-sizing:border-box;';
+            btn.addEventListener('click', (e) => { e.stopPropagation(); hidePanel(); onClick(); });
+            btn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); hidePanel(); onClick(); }, { passive: false });
+            return btn;
+        }
+
+        fbSection.appendChild(makeFbBtn(t('reportBug'), () => {
+            showFeedbackModal({
+                title: t('bugModalTitle'),
+                hasInput: true,
+                onSubmit: (msg) => sendFeedback('bug', msg)
+            });
+        }));
+
+        fbSection.appendChild(makeFbBtn(t('sendSuggestion'), () => {
+            showFeedbackModal({
+                title: t('suggestModalTitle'),
+                hasInput: true,
+                onSubmit: (msg) => sendFeedback('suggestion', msg)
+            });
+        }));
+
+        fbSection.appendChild(makeFbBtn(t('rateAppBtn'), () => {
+            showFeedbackModal({
+                title: t('rateModalTitle'),
+                hasInput: false,
+                onSubmit: (rating) => {
+                    localStorage.setItem('wol_user_rating', rating);
+                    sendRating(rating);
+                }
+            });
+        }));
+
+        panel.appendChild(fbSection);
+    }
+
     // extraSectionsBuilder(panel) — optional callback to append extra sections
     // skipModeSection — if true, omit the Mode radio group (used by HL extras-only panel)
     function showPanel(anchorEl, extraSectionsBuilder, skipModeSection) {
@@ -711,13 +1016,27 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         const panel = getModePanel();
         panel.innerHTML = '';
 
+        // ── Lock position from anchor rect at the moment of first open ──
+        // Store it on the panel element so rebuilds can reuse it exactly.
+        const pw = 240;
+        const anchorRect = anchorEl.getBoundingClientRect();
+        let anchoredLeft = anchorRect.left;
+        const anchoredTop = anchorRect.bottom + 6;
+        if (anchoredLeft + pw > window.innerWidth) anchoredLeft = window.innerWidth - pw - 10;
+        if (anchoredLeft < 10) anchoredLeft = 10;
+        panel._anchoredLeft = anchoredLeft;
+        panel._anchoredTop  = anchoredTop;
+
         if (!skipModeSection) {
             const modeSection = document.createElement('div');
             modeSection.className = 'pp-section';
+            modeSection.style.padding = '28px 14px 6px 14px';
             const modeTitle = document.createElement('div');
             modeTitle.className = 'pp-section-title';
             modeTitle.textContent = t('modeTitle');
             modeSection.appendChild(modeTitle);
+            // ── ℹ️ icon appended directly to panel after modeSection is built ──
+            // (deferred below so it sits on top of all section content)
 
             const currentMode = getMode();
             [['default', t('modeRegular')], ['study', t('modeStudy')]].forEach(([val, label]) => {
@@ -759,67 +1078,223 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
 
         if (typeof extraSectionsBuilder === 'function') extraSectionsBuilder(panel);
 
-        // ── "How to use" section — hidden by default, revealed by ℹ️ button ──
-        if (!skipModeSection && getMode() === 'default') {
-            // ── Add ℹ️ button to the mode section title row ──
-            const modeSection = panel.querySelector('.pp-section');
-            if (modeSection) {
-                const modeTitle = modeSection.querySelector('.pp-section-title');
-                if (modeTitle) {
-                    modeTitle.style.display = 'flex';
-                    modeTitle.style.alignItems = 'center';
-                    modeTitle.style.justifyContent = 'space-between';
+        // ── ℹ️ button — appears in both regular and study mode ──
+        // In regular mode: expands to show "How to use" + Feedback + Rate
+        // In study mode:   collapses the full menu down to Mode + How to use + Feedback + Rate
+        const currentMode = getMode();
+        const modeSection = panel.querySelector('.pp-section');
+        if (!skipModeSection && modeSection) {
+            const modeTitle = modeSection.querySelector('.pp-section-title');
+            if (modeTitle) {
+                modeTitle.style.display = 'flex';
+                modeTitle.style.alignItems = 'center';
+                modeTitle.style.justifyContent = 'space-between';
 
-                    const infoBtn = document.createElement('span');
-                    infoBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <circle cx="14" cy="14" r="12" stroke="currentColor" stroke-width="1.5"/>
-                    <circle cx="14" cy="9" r="1.4" fill="currentColor"/>
-                    <line x1="14" y1="13" x2="14" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                    </svg>`;
-                    infoBtn.style.cssText = 'display:inline-flex;align-items:center;cursor:pointer;opacity:1;transition:opacity 0.15s,transform 0.15s;flex-shrink:0;color:#666;-webkit-user-select:none;user-select:none;';
-                    infoBtn.title = t('whatsNewTitle');
-                    modeTitle.appendChild(infoBtn);
+                const INFO_SVG = `<svg width="16" height="16" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="14" cy="14" r="12" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="1.4" fill="currentColor"/><line x1="14" y1="13" x2="14" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
 
-                    // Hidden expandable section
-                    const wnDivider = document.createElement('div');
-                    wnDivider.className = 'pp-divider';
-                    wnDivider.style.cssText = 'height:1px;background:#e8e8e8;margin:-2px 0;overflow:hidden;max-height:0;transition:max-height 0.28s cubic-bezier(.4,0,.2,1),opacity 0.22s ease;opacity:0;';
+                const infoBtn = document.createElement('span');
+                infoBtn.innerHTML = INFO_SVG;
+                infoBtn.style.position = 'absolute';
+                infoBtn.style.top = '10px';
+                infoBtn.style.right = '13px';
+                infoBtn.style.cursor = 'pointer';
+                
+                infoBtn.title = t('whatsNewTitle');
+                panel.appendChild(infoBtn);
 
-                    const wnSection = document.createElement('div');
-                    wnSection.style.cssText = 'padding:0;overflow:hidden;max-height:0;transition:max-height 0.28s cubic-bezier(.4,0,.2,1),opacity 0.22s ease,padding 0.22s ease;opacity:0;';
+                // ── Build the collapsible "How to use + Feedback + Rate" block ──
+                const wnDivider = document.createElement('div');
+                wnDivider.className = 'pp-divider';
+                wnDivider.style.cssText = 'height:1px;background:#e8e8e8;margin:-2px 0;overflow:hidden;max-height:0;transition:max-height 0.28s cubic-bezier(.4,0,.2,1),opacity 0.22s ease;opacity:0;';
 
-                    const wnInner = document.createElement('div');
-                    wnInner.style.padding = '6px 0 20px 0';
+                const wnSection = document.createElement('div');
+                wnSection.style.cssText = 'overflow:hidden;max-height:0;transition:max-height 0.45s cubic-bezier(.4,0,.2,1),opacity 0.35s ease;opacity:0;';
 
-                    const wnTitle = document.createElement('div');
-                    wnTitle.className = 'pp-section-title';
-                    wnTitle.style.padding = '6px 14px 2px 14px';
-                    wnTitle.textContent = t('whatsNewTitle');
-                    wnInner.appendChild(wnTitle);
+                const wnInner = document.createElement('div');
+                wnInner.style.padding = '6px 0 8px 0';
 
-                    const wnBtn = document.createElement('button');
-                    wnBtn.className = 'pp-btn pp-nav';
-                    wnBtn.textContent = t('whatsNew');
-                    wnBtn.style.margin = '10px 14px 10px 14px';
-                    wnBtn.addEventListener('click', () => {
-                        hidePanel();
-                        openFullscreenVideo('https://d1oegedfje2ody.cloudfront.net/Study_chinese.mp4');
-                    });
-                    wnInner.appendChild(wnBtn);
-                    wnSection.appendChild(wnInner);
+                const wnTitle = document.createElement('div');
+                wnTitle.className = 'pp-section-title';
+                wnTitle.style.padding = '6px 14px 2px 14px';
+                wnTitle.textContent = t('whatsNewTitle');
+                wnInner.appendChild(wnTitle);
 
-                    panel.appendChild(wnDivider);
-                    panel.appendChild(wnSection);
+                const wnBtn = document.createElement('button');
+                wnBtn.className = 'pp-btn pp-nav';
+                wnBtn.textContent = t('whatsNew');
+                wnBtn.style.margin = '6px 14px 6px 14px';
+                wnBtn.style.width = 'calc(100% - 28px)';
+                wnBtn.addEventListener('click', () => {
+                    hidePanel();
+                    openFullscreenVideo('https://d1oegedfje2ody.cloudfront.net/Study_chinese.mp4');
+                });
+                wnInner.appendChild(wnBtn);
+                wnSection.appendChild(wnInner);
 
-                    let expanded = false;
-                    function toggleHowToUse(e) {
-                        e.preventDefault(); e.stopPropagation();
-                        expanded = !expanded;
-                        infoBtn.style.transform = expanded ? 'scale(1.15)' : 'scale(1)';
+                // Feedback + Rate appended inside the collapsible block
+                buildFeedbackAndRateSections(wnSection);
+
+                panel.appendChild(wnDivider);
+                panel.appendChild(wnSection);
+
+                function repositionPanel() {
+                    setTimeout(() => {
+                        const rect = panel.getBoundingClientRect();
+                        if (rect.bottom > window.innerHeight - 10) {
+                            panel.style.top = Math.max(parseInt(panel.style.top) - (rect.bottom - window.innerHeight + 10), 4) + 'px';
+                        }
+                    }, 50);
+                }
+
+                let expanded = false;
+
+                function toggleHowToUse(e) {
+                    e.preventDefault(); e.stopPropagation();
+                    expanded = !expanded;
+                    infoBtn.style.transform = expanded ? 'scale(1.15)' : 'scale(1)';
+
+                    if (currentMode === 'study') {
+                        // ── Study mode: swap between full menu and compact info-only view ──
+                        // Instead of animating individual sections (which are already rendered
+                        // at full height), we rebuild the panel content in place.
+                        if (expanded) {
+                        // Snapshot the locked position set by showPanel — never recalculate
+                        const lockedLeft = panel._anchoredLeft;
+                        const lockedTop  = panel._anchoredTop;
+
+                        function applyLockedPosition() {
+                            panel.style.left = lockedLeft + 'px';
+                            panel.style.top  = lockedTop  + 'px';
+                        }
+
+                        panel.style.transition = 'opacity 0.18s ease';
+                        panel.style.opacity = '0';
+
+                        setTimeout(() => {
+                            panel.innerHTML = '';
+                            applyLockedPosition();
+
+                            // ── ✕ icon: absolutely positioned in panel top-right, zero layout impact ──
+                            const cancelAnchor = document.createElement('div');
+                            cancelAnchor.style.cssText = 'position:absolute;top:0;right:0;width:0;height:0;overflow:visible;pointer-events:none;';
+                            panel.appendChild(cancelAnchor);
+
+                            const cancelIcon = document.createElement('span');
+                            cancelIcon.innerHTML = '✕';
+                            cancelIcon.style.cssText = [
+                                'position:absolute',
+                                'top:8px',
+                                'right:10px',
+                                'display:inline-flex',
+                                'align-items:center',
+                                'justify-content:center',
+                                'width:22px',
+                                'height:22px',
+                                'cursor:pointer',
+                                'font-size:20px',
+                                'font-weight:900',
+                                '-webkit-text-stroke:0.5px currentColor',
+                                'color:#c00',
+                                'line-height:1',
+                                '-webkit-user-select:none',
+                                'user-select:none',
+                                'pointer-events:auto',
+                                'z-index:3',
+                            ].join(';');
+                            cancelIcon.title = t('cancelLabel');
+                            cancelAnchor.appendChild(cancelIcon);
+
+                            // ── HOW TO USE section — clean, no icon in flow ──
+                            const huSec = document.createElement('div'); huSec.className = 'pp-section';
+                            huSec.style.padding = '30px 0 8px 0';
+                            const huTitle = document.createElement('div'); huTitle.className = 'pp-section-title';
+                            huTitle.style.padding = '0 14px 4px 14px';
+                            huTitle.textContent = t('whatsNewTitle');
+                            huSec.appendChild(huTitle);
+                            const huBtn = document.createElement('button'); huBtn.className = 'pp-btn pp-nav';
+                            huBtn.textContent = t('whatsNew');
+                            huBtn.style.cssText = 'margin:6px 14px 10px 14px;width:calc(100% - 28px);box-sizing:border-box;';
+                            huBtn.addEventListener('click', () => { hidePanel(); openFullscreenVideo('https://d1oegedfje2ody.cloudfront.net/Study_chinese.mp4'); });
+                            huSec.appendChild(huBtn);
+                            panel.appendChild(huSec);
+
+                            // ── FEEDBACK + RATE section ──
+                            const d1 = document.createElement('div'); d1.className = 'pp-divider'; panel.appendChild(d1);
+                            const fbSec = document.createElement('div'); fbSec.className = 'pp-section';
+                            fbSec.style.padding = '6px 0 8px 0';
+                            const fbTitle = document.createElement('div'); fbTitle.className = 'pp-section-title';
+                            fbTitle.style.padding = '6px 14px 2px 14px';
+                            fbTitle.textContent = t('feedbackTitle');
+                            fbSec.appendChild(fbTitle);
+
+                            function makeFbBtnInfo(label, onClick) {
+                                const btn = document.createElement('button');
+                                btn.className = 'pp-btn pp-nav';
+                                btn.textContent = label;
+                                btn.style.cssText = 'margin:10px 14px;width:calc(100% - 28px);box-sizing:border-box;';
+                                btn.addEventListener('click', (e) => { e.stopPropagation(); hidePanel(); onClick(); });
+                                btn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); hidePanel(); onClick(); }, { passive: false });
+                                return btn;
+                            }
+
+                            fbSec.appendChild(makeFbBtnInfo(t('reportBug'), () => {
+                                showFeedbackModal({ title: t('bugModalTitle'), hasInput: true, onSubmit: (msg) => sendFeedback('bug', msg) });
+                            }));
+                            fbSec.appendChild(makeFbBtnInfo(t('sendSuggestion'), () => {
+                                showFeedbackModal({ title: t('suggestModalTitle'), hasInput: true, onSubmit: (msg) => sendFeedback('suggestion', msg) });
+                            }));
+                            fbSec.appendChild(makeFbBtnInfo(t('rateAppBtn'), () => {
+                                showFeedbackModal({
+                                    title: t('rateModalTitle'),
+                                    hasInput: false,
+                                    onSubmit: (rating) => {
+                                        localStorage.setItem('wol_user_rating', rating);
+                                        sendRating(rating);
+                                    }
+                                });
+                            }));
+                            panel.appendChild(fbSec);
+
+                            // ── Wire ✕ to restore full study panel ──
+                            function restoreFullStudyPanel(ev) {
+                                ev.preventDefault(); ev.stopPropagation();
+                                panel.style.transition = 'opacity 0.15s ease';
+                                panel.style.opacity = '0';
+                                setTimeout(() => {
+                                    // Pass a fake anchor whose getBoundingClientRect
+                                    // returns the locked position — prevents any recalc
+                                    const fakeAnchor = {
+                                        getBoundingClientRect: () => ({
+                                            left:   lockedLeft,
+                                            bottom: lockedTop - 6,
+                                            right:  lockedLeft + 240,
+                                            top:    lockedTop - 50,
+                                            width:  240,
+                                            height: 44
+                                        })
+                                    };
+                                    showPanel(fakeAnchor, buildStudyExtras);
+                                    requestAnimationFrame(() => {
+                                        panel.style.transition = 'opacity 0.18s ease';
+                                        panel.style.opacity = '1';
+                                    });
+                                }, 160);
+                            }
+                            cancelIcon.addEventListener('click', restoreFullStudyPanel);
+                            cancelIcon.addEventListener('touchend', (ev) => { ev.preventDefault(); restoreFullStudyPanel(ev); }, { passive: false });
+
+                            panel.style.transition = 'opacity 0.18s ease';
+                            panel.style.opacity = '1';
+                        }, 180);
+                    }
+                    // Restore is handled by the ✕ button built above
+
+                    } else {
+                        // ── Regular mode: simple expand/collapse ──
                         if (expanded) {
                             wnDivider.style.maxHeight = '2px';
                             wnDivider.style.opacity = '1';
-                            wnSection.style.maxHeight = '90px';
+                            wnSection.style.maxHeight = '600px';
                             wnSection.style.opacity = '1';
                         } else {
                             wnDivider.style.maxHeight = '0';
@@ -827,31 +1302,21 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                             wnSection.style.maxHeight = '0';
                             wnSection.style.opacity = '0';
                         }
-                        // Reposition panel after expansion
-                        setTimeout(() => {
-                            const pw = 240;
-                            const rect = panel.getBoundingClientRect();
-                            if (rect.bottom > window.innerHeight - 10) {
-                                panel.style.top = Math.max(parseInt(panel.style.top) - (rect.bottom - window.innerHeight + 10), 4) + 'px';
-                            }
-                        }, 30);
+                        repositionPanel();
                     }
-                    infoBtn.addEventListener('click', toggleHowToUse);
-                    infoBtn.addEventListener('touchend', toggleHowToUse, { passive: false });
                 }
+
+                infoBtn.addEventListener('click', toggleHowToUse);
+                infoBtn.addEventListener('touchend', toggleHowToUse, { passive: false });
             }
         }
 
         panel.style.display = 'block';
         panel.getBoundingClientRect();
 
-        const pw = 240;
-        const rect = anchorEl.getBoundingClientRect();
-        let left = rect.left, top = rect.bottom + 6;
-        if (left + pw > window.innerWidth) left = window.innerWidth - pw - 10;
-        if (left < 10) left = 10;
-        panel.style.left = left + 'px';
-        panel.style.top = top + 'px';
+        // Use the locked anchor position captured above
+        panel.style.left = panel._anchoredLeft + 'px';
+        panel.style.top  = panel._anchoredTop  + 'px';
         panel.classList.add('pp-open');
         panel.onmouseleave = () => hidePanel();
     }
@@ -859,6 +1324,10 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     function hidePanel() {
         const panel = document.getElementById('wol_mode_panel');
         if (!panel) return;
+        // Clear any inline opacity/transition left over from info-view rebuilds
+        // so the CSS transition in #wol_mode_panel takes over cleanly
+        panel.style.removeProperty('opacity');
+        panel.style.removeProperty('transition');
         panel.classList.remove('pp-open');
         setTimeout(() => {
             if (panel && !panel.classList.contains('pp-open')) panel.style.display = 'none';
@@ -1261,6 +1730,10 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 const ruby = e.target.closest('ruby');
                 if (!ruby || e.target.closest('a')) return;
                 if (e.target.closest('.tooltip, .tooltipContainer')) return;
+                // Clear any stuck selection from a previous long-press — this
+                // prevents iOS from freezing the selection engine on the ruby rb.
+                const sel = window.getSelection();
+                if (sel && !sel.isCollapsed) sel.removeAllRanges();
                 rTouchStartX = e.touches[0].clientX;
                 rTouchStartY = e.touches[0].clientY;
                 rTouchStartTime = Date.now();
@@ -1272,6 +1745,13 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 const dx = e.touches[0].clientX - rTouchStartX;
                 const dy = e.touches[0].clientY - rTouchStartY;
                 if (Math.abs(dx) > 8 || Math.abs(dy) > 8) { rTouchMoved = true; rTouchRuby = null; }
+            }, { passive: true });
+
+            // Clear stuck selections when iOS cancels the touch (e.g. after long-press)
+            rubyArticle.addEventListener('touchcancel', () => {
+                rTouchMoved = false; rTouchRuby = null;
+                const sel = window.getSelection();
+                if (sel && !sel.isCollapsed) sel.removeAllRanges();
             }, { passive: true });
 
             rubyArticle.addEventListener('touchend', (e) => {
@@ -1372,6 +1852,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     function buildStudyExtras(panel) {
         const d1 = document.createElement('div'); d1.className = 'pp-divider'; panel.appendChild(d1);
         const levelSection = document.createElement('div'); levelSection.className = 'pp-section pp-level-section';
+        levelSection.style.padding = '7px 14px 4px 14px';
         const levelTitle = document.createElement('div'); levelTitle.className = 'pp-section-title';
         levelTitle.textContent = t('levelTitle'); levelSection.appendChild(levelTitle);
 
@@ -1403,7 +1884,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         // Quick links
         const dQL = document.createElement('div'); dQL.className = 'pp-divider'; panel.appendChild(dQL);
         const qlSection = document.createElement('div'); qlSection.className = 'pp-section';
-        qlSection.style.padding = '6px 0 8px 0';
+        qlSection.style.padding = '6px 0 6px 0';
         const qlTitle = document.createElement('div'); qlTitle.className = 'pp-section-title';
         qlTitle.style.padding = '6px 14px 2px 14px'; qlTitle.textContent = t('quickLinks');
         qlSection.appendChild(qlTitle);
@@ -1443,6 +1924,12 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             hidePanel();
             showSyncToast(t('watchtower'));
             setTimeout(() => window.location.assign(window.location.origin + '/cmn-Hans/wol/meetings/r23/lp-chs-rb'), 1000);
+            return 'async';
+        }));
+        qlSection.appendChild(makeNavBtn(t('navEnjoyLife'), () => {
+            hidePanel();
+            showSyncToast(t('navEnjoyLife'));
+            setTimeout(() => window.location.assign('https://wol.jw.org/cmn-Hans/wol/publication/r23/lp-chs-rb/lff/0'), 1000);
             return 'async';
         }));
         panel.appendChild(qlSection);
@@ -1557,14 +2044,17 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         e.stopImmediatePropagation();
     }
 
-    // ── Study mode audio ──
-    // Par number tap → show contextMenu + player wrapper (iOS).
-    // Highlighter icon tap → hide both. Player stays visible while audio plays.
     function enableStudyAudio() {
-        document.body.classList.add('wol-audio-active');
+        // wol-player-visible makes the player wrapper visible on iOS (CSS gate).
+        // Set it unconditionally whenever the toggle is on — this is what reveals
+        // the player. wol-audio-active (which unlocks the context menu and patches
+        // par/verse links) is only set once the player is actually rendered.
         if (isIOS) document.body.classList.add('wol-player-visible');
+        document.body.classList.add('wol-audio-active');
         const cm = document.getElementById('contextMenu');
         if (cm) cm.style.removeProperty('display');
+        // Patch links now if player already visible, otherwise the speedObserver
+        // will call patchVerseLinksForAudio/patchParLinksForAudio once it appears.
         patchVerseLinksForAudio();
         patchParLinksForAudio();
     }
@@ -1574,6 +2064,24 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         const cm = document.getElementById('contextMenu');
         if (cm) cm.style.setProperty('display', 'none', 'important');
     }
+
+    // Auto-deactivate audio mode when the player wrapper is hidden by WOL
+    // (e.g. navigating away from an article that had audio). This clears
+    // wol-audio-active so the context menu suppression resumes correctly.
+    new MutationObserver(() => {
+        if (!document.body.classList.contains('wol-audio-active')) return;
+        if (!getPlaybackEnabled()) return;
+        const wrapper = document.getElementById('playerwrapper');
+        if (!wrapper) return;
+        const s = window.getComputedStyle(wrapper);
+        // Only deactivate if WOL itself hid the player (not our own CSS class)
+        if (s.display === 'none' && !document.body.classList.contains('wol-player-visible')) {
+            disableStudyAudio();
+        }
+    }).observe(document.body, {
+        childList: true, subtree: true,
+        attributes: true, attributeFilter: ['style', 'class']
+    });
 
     function patchVerseLinksForAudio() {
         if (!isIOS || !getPlaybackEnabled() || getMode() !== 'study') return;
@@ -1604,8 +2112,60 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         });
     }
 
-    new MutationObserver(() => patchParLinksForAudio())
-    .observe(document.body, { childList: true, subtree: true });
+    new MutationObserver(() => {
+        if (document.body.classList.contains('wol-audio-active')) patchParLinksForAudio();
+    }).observe(document.body, { childList: true, subtree: true });
+
+    // ── Desktop: click on verse punctuation/space → show play button (bible view only) ──
+    document.addEventListener('click', (e) => {
+        if (getMode() !== 'study') return;
+        if (!getPlaybackEnabled()) return;
+        // Desktop only — touch devices use the long-press path
+        if (e.pointerType === 'touch') return;
+        // Only in bible sync view
+        if (!location.href.includes('bsync') && !location.href.includes('/b/r')) return;
+        // Must be inside a verse span
+        const verseSpan = e.target.closest('span.v');
+        if (!verseSpan) return;
+        // Skip clicks on ruby, char-wraps, links — those have their own handlers
+        if (e.target.closest('ruby, rb, rt, .wol-char-wrap, a')) return;
+        enableStudyAudio();
+    }, { capture: true });
+
+    // ── Desktop: click on paragraph numbers or workbook headings → show play button ──
+    // Mirrors the iOS long-press path (_parLinkFromEvent) but for desktop clicks.
+    // Matches:
+    //   • span.parNum  (paragraph number badges like ³)
+    //   • h1–h4[data-pid] whose first child is NOT a ruby (workbook part headings
+    //     like "2．经文宝石" where the number label is a plain <strong>)
+    document.addEventListener('click', (e) => {
+        if (getMode() !== 'study') return;
+        if (!getPlaybackEnabled()) return;
+        // Desktop only
+        if (e.pointerType === 'touch') return;
+        // Skip ruby/char-wrap taps — those are pinyin interactions
+        if (e.target.closest('ruby, rb, rt, .wol-char-wrap')) return;
+
+        // Match paragraph number spans
+        const parNum = e.target.closest('span.parNum, [class*="parNum"]');
+        if (parNum) {
+            enableStudyAudio();
+            return;
+        }
+
+        // Match workbook headings that start with a plain number/label (not ruby)
+        const heading = e.target.closest('h1[data-pid], h2[data-pid], h3[data-pid], h4[data-pid]');
+        if (heading) {
+            // Skip if the tap landed on a ruby (pinyin tap)
+            if (e.target.closest('ruby, rb, rt')) return;
+            // Skip headings whose first element child is a ruby — those are
+            // content headings (article subheadings), not workbook part labels
+            const firstChild = heading.firstElementChild;
+            if (firstChild && firstChild.tagName === 'RUBY') return;
+            enableStudyAudio();
+            return;
+        }
+    }, { capture: true });
 
     // Capture-phase mousedown+touchstart: enable audio on par tap BEFORE WOL's handler.
     // Using mousedown ensures wol-audio-active is set before WOL shows contextMenu.
@@ -1647,10 +2207,30 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         let _parLongPressTimer = null;
         let _parTouchMoved = false;
         let _parLongPressFired = false;
+        let _touchStartTarget = null;
+
+        // Separate non-passive listener just for verse links — needs preventDefault
+        // to stop iOS from starting a text selection during the long-press hold.
+        // Only active when playback is enabled and we're in a bible sync view.
+        document.addEventListener('touchstart', (e) => {
+            if (getMode() !== 'study') return;
+            if (!getPlaybackEnabled()) return;
+            if (e.target.closest('.wol-char-wrap')) return;
+            const verseLink = e.target.closest('a.vl.vx.vp, span.v a.vl');
+            if (!verseLink) return;
+            // Prevent iOS from initiating text selection on long-press of verse links
+            e.preventDefault();
+        }, { capture: true, passive: false });
 
         document.addEventListener('touchstart', (e) => {
             if (getMode() !== 'study') return;
             if (!getPlaybackEnabled()) return;
+            // Store target for later verification - skip ALL audio logic if on char-wrap or whitespace
+            _touchStartTarget = e.target.closest('.wol-char-wrap');
+            if (_touchStartTarget) return;
+            // Skip if target is just whitespace
+            if (e.target.nodeType === Node.TEXT_NODE && !e.target.textContent.trim()) return;
+            if (e.target.nodeType === Node.TEXT_NODE && e.target.parentElement) e.target = e.target.parentElement;
             const verseLink = e.target.closest('a.vl.vx.vp, span.v a.vl');
             if (verseLink) {
                 _verseTouchMoved = false;
@@ -1693,7 +2273,8 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             }
         }, { capture: true, passive: true });
 
-        document.addEventListener('touchmove', () => {
+        document.addEventListener('touchmove', (e) => {
+            if (_touchStartTarget) return;
             _verseTouchMoved = true;
             if (_verseLongPressTimer) { clearTimeout(_verseLongPressTimer); _verseLongPressTimer = null; }
             _parTouchMoved = true;
@@ -1702,16 +2283,20 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
 
         document.addEventListener('touchend', (e) => {
             if (_verseLongPressTimer) { clearTimeout(_verseLongPressTimer); _verseLongPressTimer = null; }
-            if (_verseLongPressFired) {
+            if (_verseLongPressFired && !_touchStartTarget && e.target.closest('a.vl.vx.vp, span.v a.vl')) {
                 _verseLongPressFired = false;
-                const verseLink = e.target.closest('a.vl.vx.vp, span.v a.vl');
-                if (verseLink) { e.preventDefault(); e.stopImmediatePropagation(); }
+                e.preventDefault(); e.stopImmediatePropagation();
+            } else {
+                _verseLongPressFired = false;
             }
             if (_parLongPressTimer) { clearTimeout(_parLongPressTimer); _parLongPressTimer = null; }
-            if (_parLongPressFired) {
+            if (_parLongPressFired && !_touchStartTarget && _parLinkFromEvent(e)) {
                 _parLongPressFired = false;
-                if (_parLinkFromEvent(e)) { e.preventDefault(); e.stopImmediatePropagation(); }
+                e.preventDefault(); e.stopImmediatePropagation();
+            } else {
+                _parLongPressFired = false;
             }
+            _touchStartTarget = null;
         }, { capture: true, passive: false });
 
         document.addEventListener('contextmenu', (e) => {
@@ -2000,7 +2585,16 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 if (p) p.style.opacity = pinned ? '1' : '0';
 
                 let lastTap = 0, touchStartTime = 0;
-                wrap.addEventListener('touchstart', () => { touchStartTime = Date.now(); }, { passive: true });
+                wrap.addEventListener('touchstart', () => {
+                    touchStartTime = Date.now();
+                    // Clear any stuck selection from a previous long-press
+                    const sel = window.getSelection();
+                    if (sel && !sel.isCollapsed) sel.removeAllRanges();
+                }, { passive: true });
+                wrap.addEventListener('touchcancel', () => {
+                    const sel = window.getSelection();
+                    if (sel && !sel.isCollapsed) sel.removeAllRanges();
+                }, { passive: true });
                 wrap.addEventListener('touchend', (e) => {
                     if (Date.now() - touchStartTime > 400) return;
                     const now = Date.now(), delta = now - lastTap;
@@ -2094,6 +2688,9 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 tTM = false; tTR = null;
                 const ruby = e.target.closest('ruby');
                 if (!ruby || e.target.closest('a')) return;
+                // Clear any stuck selection from a previous long-press
+                const sel = window.getSelection();
+                if (sel && !sel.isCollapsed) sel.removeAllRanges();
                 tTSX = e.touches[0].clientX; tTSY = e.touches[0].clientY;
                 tTSTime = Date.now(); tTR = ruby;
             }, { passive: true });
@@ -2101,6 +2698,12 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 if (!tTR) return;
                 const dx = e.touches[0].clientX - tTSX, dy = e.touches[0].clientY - tTSY;
                 if (Math.abs(dx) > 8 || Math.abs(dy) > 8) { tTM = true; tTR = null; }
+            }, { passive: true });
+            // Clear stuck selection when iOS cancels the touch after a long-press
+            tooltip.addEventListener('touchcancel', () => {
+                tTM = false; tTR = null;
+                const sel = window.getSelection();
+                if (sel && !sel.isCollapsed) sel.removeAllRanges();
             }, { passive: true });
             tooltip.addEventListener('touchend', (e) => {
                 const ruby = tTR; tTR = null;
@@ -2431,30 +3034,55 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         return lastPct;
     }
     (function patchInsertRule() {
-        const targetProto = (typeof unsafeWindow !== 'undefined')
-            ? unsafeWindow.CSSStyleSheet.prototype
-            : CSSStyleSheet.prototype;
-        const orig = targetProto.insertRule;
-        targetProto.insertRule = function(rule, index) {
-            const result = orig.call(this, rule, index);
-            if (/\.scalableui\s*\{[^}]*font-size\s*:/i.test(rule)) {
-                const match = rule.match(/font-size\s*:\s*([^;}"]+)/i);
-                if (match) {
-                    const newPct = match[1].trim();
-                    const display = document.getElementById('wol_fontsize_display');
-                    if (display) display.textContent = pctToPt(newPct);
-                    if (localStorage.getItem(FONT_SIZE_REMEMBER_KEY) === 'true'
-                        && !safeWindow._wolFontRestoring && safeWindow._wolFontInitSeen) {
-                        localStorage.setItem(FONT_SIZE_KEY, newPct);
+        try {
+            const win = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
+            const orig = win.CSSStyleSheet.prototype.insertRule;
+            win.CSSStyleSheet.prototype.insertRule = function(rule, index) {
+                const result = orig.call(this, rule, index);
+                if (/\.scalableui\s*\{[^}]*font-size\s*:/i.test(rule)) {
+                    const match = rule.match(/font-size\s*:\s*([^;}"]+)/i);
+                    if (match) {
+                        const newPct = match[1].trim();
+                        const display = document.getElementById('wol_fontsize_display');
+                        if (display) display.textContent = pctToPt(newPct);
+                        if (localStorage.getItem(FONT_SIZE_REMEMBER_KEY) === 'true'
+                            && !safeWindow._wolFontRestoring
+                            && safeWindow._wolFontInitSeen) {
+                            localStorage.setItem(FONT_SIZE_KEY, newPct);
+                        }
+                        safeWindow._wolFontInitSeen = true;
+                        clearTimeout(safeWindow._wolScrollTodayTimer);
+                        safeWindow._wolScrollTodayTimer = setTimeout(scrollToToday, 300);
                     }
-                    safeWindow._wolFontInitSeen = true;
-                    clearTimeout(safeWindow._wolScrollTodayTimer);
-                    safeWindow._wolScrollTodayTimer = setTimeout(scrollToToday, 300);
                 }
+                return result;
+            };
+        } catch(e) {}
+
+        // Polling fallback for iOS where prototype patch may not intercept page calls
+        let _lastPolledPct = null;
+        setInterval(() => {
+            const pct = getCurrentScalableUIPct();
+            if (!pct || pct === _lastPolledPct) return;
+            _lastPolledPct = pct;
+
+            const display = document.getElementById('wol_fontsize_display');
+            if (display) display.textContent = pctToPt(pct);
+
+            if (localStorage.getItem(FONT_SIZE_REMEMBER_KEY) === 'true'
+                && !safeWindow._wolFontRestoring
+                && safeWindow._wolFontInitSeen) {
+                localStorage.setItem(FONT_SIZE_KEY, pct);
             }
-            return result;
-        };
-    })();
+
+            safeWindow._wolFontInitSeen = true;
+
+            // ✅ THIS is the missing piece
+            clearTimeout(safeWindow._wolScrollTodayTimer);
+            safeWindow._wolScrollTodayTimer = setTimeout(scrollToToday, 200);
+
+        }, 300);
+    })();                                                    
 
     function scrollToToday() {
         setTimeout(() => {
@@ -2568,8 +3196,8 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             checkbox.checked = newState; li.classList.toggle('checked', newState);
             setPlaybackEnabled(newState);
             if (getMode() === 'study') {
-                // In study mode: toggle controls audio UI directly
-                if (newState) enableStudyAudio();
+                // In study mode: only activate if player is also currently visible
+                if (newState) enableStudyAudio(); // enableStudyAudio guards internally
                 else disableStudyAudio();
             } else {
                 applyPlaybackState(newState);
@@ -2613,6 +3241,12 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         return m ? `scripture_${m[1]}_${m[2]}` : null;
     }
     function extractArticleRef(url) {
+        const syncMatch = url.match(/\/(?:d|m|b)sync\/(?:[^\/]+\/){1,4}(lp-chs(?:-rb)?)\/(\d+)/);
+        if (syncMatch) return `article_lp-chs${syncMatch[1].includes('-rb') ? '-rb' : ''}_${syncMatch[2]}`;
+
+        const chsMatch = url.match(/\/(?:d|m|b|meetings)\/(?:r23\/)(lp-chs(?:-rb)?)\/(\d+)/);
+        if (chsMatch) return `article_${chsMatch[1]}_${chsMatch[2]}`;
+
         const m1 = url.match(/\/(?:d|dsync|b|bsync|m|msync|meetings|lv|pc)\/((?:[^\/]+\/)*[^\/]+?)\/(\d+)(?:[^#\/\?]*)/);
         if (m1) return `article_${m1[1].replace(/\//g,'_')}_${m1[2]}`;
         const m2 = url.match(/\/(w|wp|g|km|mwb)\/[^\/]+\/[^\/]+\/([^#\/\?]+)/);
@@ -2624,7 +3258,33 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         for (let i = 0; i < str.length; i++) { hash = ((hash << 5) - hash) + str.charCodeAt(i); hash = hash & hash; }
         return Math.abs(hash).toString(36);
     }
-    // Two canonical keys per container — article ref + tooltip mirror
+    // Derive one canonical storage key for any context (main page or tooltip).
+    // Both the bible page and its verse tooltip resolve to the same key so
+    // highlights are shared between them automatically.
+    function canonicalKey(pathnameOrHref) {
+        const clean = pathnameOrHref.split('#')[0].split('?')[0];
+        return extractArticleRef(clean) || extractScriptureRef(clean) || clean;
+    }
+
+    function getPageKey() {
+        return canonicalKey(window.location.pathname);
+    }
+
+    function getTooltipKey(tooltip) {
+        const link = tooltip.querySelector('a.bibleCitation, a.publicationCitation, a[class*="pub-"]');
+        if (link) {
+            const href = link.getAttribute('href');
+            if (href) {
+                const abs = new URL(href, window.location.href).pathname;
+                return canonicalKey(abs);
+            }
+        }
+        return 'tooltip_' + simpleHash(tooltip.textContent.trim().substring(0, 500));
+    }
+
+    // Two canonical keys per container — article ref + tooltip mirror.
+    // Tooltip saves to [ar, 'tooltip_ar'] so the shared article key always
+    // gets written. Main page saves to [ar] only — no overwrite risk.
     function getKeys(container) {
         const tooltip = container.closest('.tooltip, .tooltipContainer');
         if (tooltip) {
@@ -2644,7 +3304,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         }
         const path = window.location.pathname;
         const ar = extractArticleRef(path) || extractScriptureRef(path) || path;
-        return [ar];  // main article: one key only, no tooltip mirror needed
+        return [ar];  // main article: one key only
     }
 
     // ── Save / restore highlights ──
@@ -2694,7 +3354,10 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         }
         highlightGroups.forEach((spanGroup, id) => {
             if (spanGroup.length === 0) return;
-            highlights.push({ id, color: spanGroup[0].style.backgroundColor, text: getTextBetweenSpans(spanGroup) });
+            const anySpanInGroup = spanGroup[0];
+            const pidEl = anySpanInGroup.closest('[data-pid]');
+            const pid = pidEl ? pidEl.getAttribute('data-pid') : null;
+            highlights.push({ id, color: spanGroup[0].style.backgroundColor, text: getTextBetweenSpans(spanGroup), pid });
         });
         const transaction = db.transaction(['highlights'], 'readwrite');
         const store = transaction.objectStore('highlights');
@@ -2708,8 +3371,6 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     function restoreHighlights(container) {
         container = container || document.body;
         if (!db) return;
-        // Don't restore if highlights already exist — prevents duplicate IDs from
-        // multiple restore calls (init timeouts, MutationObserver, compact mode switch)
         if (container.querySelector('span[data-highlight-id]')) return;
 
         const keys = getKeys(container);
@@ -2749,6 +3410,76 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                         const fullText = getTextContent(element);
                         const index = fullText.indexOf(searchText);
                         if (index === -1) return false;
+
+                        // ── Ruby-page restore: match rubies by position-anchored CJK text ──
+                        const allRubies = Array.from(element.querySelectorAll('ruby'));
+                        if (allRubies.length > 0) {
+                            const cjkRe = /[^\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3000-\u303f\uff00-\uffef]/g;
+                            const searchCJK = searchText.replace(cjkRe, '');
+                            if (searchCJK.length > 0) {
+                                // Walk all rubies, track both their fullText position and
+                                // their CJK index, so we find the match anchored to the
+                                // correct position in the paragraph — not just first CJK hit.
+                                let fullPos = 0, cjkPos = 0;
+                                let startIdx = -1, endIdx = -1;
+                                let cjkMatchStart = -1;
+
+                                // Build per-ruby fullText positions using the same walker
+                                const rubyFullPos = [];
+                                const rubyData = [];
+                                const walker2 = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, pfo);
+                                let pos = 0;
+                                const textNodes = [];
+                                while (walker2.nextNode()) textNodes.push({ node: walker2.currentNode, start: pos, len: walker2.currentNode.textContent.length, end: pos += walker2.currentNode.textContent.length });
+                                // Not used directly — instead compute ruby start positions
+                                // by finding which text nodes fall inside each ruby.
+
+                                // Simpler: record fullText start index of each ruby's RB text.
+                                // We rebuild fullText char-by-char to get ruby positions.
+                                let cursor = 0;
+                                const rubyStarts = [];
+                                const rubyTexts = [];
+                                for (let i = 0; i < allRubies.length; i++) {
+                                    const rbText = allRubies[i].querySelector('rb')?.textContent || '';
+                                    const cjkOnly = rbText.replace(cjkRe, '');
+                                    rubyTexts.push(cjkOnly);
+                                    // Find this ruby's position in fullText by scanning forward
+                                    const rbFull = rbText;
+                                    const pos2 = fullText.indexOf(rbFull, cursor);
+                                    rubyStarts.push(pos2 === -1 ? cursor : pos2);
+                                    if (pos2 !== -1) cursor = pos2 + rbFull.length;
+                                }
+
+                                // Now find which rubies fall in [index, index+searchText.length)
+                                const searchEnd = index + searchText.length;
+                                const targets = [];
+                                const highlightID = 'hl_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                                for (let i = 0; i < allRubies.length; i++) {
+                                    const rStart = rubyStarts[i];
+                                    const rbText = allRubies[i].querySelector('rb')?.textContent || '';
+                                    const rEnd = rStart + rbText.length;
+                                    // Ruby overlaps the search range
+                                    if (rEnd > index && rStart < searchEnd) {
+                                        if (!allRubies[i].closest('span[data-highlight-id]'))
+                                            targets.push(allRubies[i]);
+                                    }
+                                }
+                                if (targets.length) {
+                                    targets.forEach(ruby => {
+                                        const span = document.createElement('span');
+                                        span.style.backgroundColor = highlight.color;
+                                        span.style.color = 'black';
+                                        span.setAttribute('data-highlight-id', highlightID);
+                                        addRemoveListener(span);
+                                        ruby.parentNode.replaceChild(span, ruby);
+                                        span.appendChild(ruby);
+                                    });
+                                    return true;
+                                }
+                            }
+                        }
+
+                        // ── Plain text restore (compact mode / no rubies) ──
                         const range = document.createRange();
                         const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, pfo);
                         let currentLength = 0, startNode = null, startOffset = 0, endNode = null, endOffset = 0;
@@ -2765,10 +3496,20 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                         return false;
                     }
                     const articleContainer = container.querySelector('#article, .article, #content, .synopsis') || container;
-                    const paragraphs = Array.from(articleContainer.querySelectorAll('div[data-pid], p, div.v, div.sb, div.sc, li, div.du, div.dc, h1, h2, h3, h4'))
+                    const headings = Array.from(articleContainer.querySelectorAll('h1, h2, h3, h4'))
                         .filter(el => !el.closest('.documentNavigation, .noTooltips'));
+                    const bodies = Array.from(articleContainer.querySelectorAll('div[data-pid], p, div.v, div.sb, div.sc, li, div.du, div.dc'))
+                        .filter(el => !el.closest('.documentNavigation, .noTooltips'));
+                    const paragraphs = [...headings, ...bodies];
                     highlights.forEach(highlight => {
                         if (container.querySelector(`span[data-highlight-id="${highlight.id}"]`)) return;
+                        // If we have a pid, try that paragraph first before falling back to all paragraphs
+                        if (highlight.pid) {
+                            const pidEl = container.querySelector(`[data-pid="${highlight.pid}"]`);
+                            if (pidEl && !pidEl.querySelector(`span[data-highlight-id="${highlight.id}"]`)) {
+                                if (highlightTextInElement(pidEl, highlight.text, highlight)) return;
+                            }
+                        }
                         for (let i = 0; i < paragraphs.length; i++) {
                             if (paragraphs[i].querySelector(`span[data-highlight-id="${highlight.id}"]`)) continue;
                             if (highlightTextInElement(paragraphs[i], highlight.text, highlight)) break;
@@ -2811,16 +3552,21 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     let currentRange = null;
     document.addEventListener('selectionchange', function() {
         const sel = window.getSelection();
-        if (!sel.rangeCount || sel.isCollapsed) return;
+        if (!sel || !sel.rangeCount || sel.isCollapsed) return;
+        let merged;
         if (sel.rangeCount === 1) {
-            currentRange = sel.getRangeAt(0).cloneRange();
+            merged = sel.getRangeAt(0).cloneRange();
         } else {
             const first = sel.getRangeAt(0), last = sel.getRangeAt(sel.rangeCount - 1);
-            const merged = document.createRange();
+            merged = document.createRange();
             merged.setStart(first.startContainer, first.startOffset);
             merged.setEnd(last.endContainer, last.endOffset);
-            currentRange = merged;
         }
+        if (merged.collapsed) return;
+        try { if (!merged.startContainer.isConnected || !merged.endContainer.isConnected) return; } catch(e) { return; }
+        currentRange = merged;
+        window.__savedHighlightRange = merged.cloneRange();
+        window.__savedHighlightText = sel.toString();
     });
 
     // ── Ruby-aware mouse selection ──
@@ -2867,25 +3613,62 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     const hlColors = ['#fff176','#b9f6ca','#ffe0b2','#ead5f5'];
 
     function snapRangeToRubyBoundaries(range) {
-        let startNode = range.startContainer, endNode = range.endContainer;
-        let startRuby = startNode;
-        while (startRuby && startRuby.tagName !== 'RUBY') startRuby = startRuby.parentElement;
-        let endRuby = endNode;
-        while (endRuby && endRuby.tagName !== 'RUBY') endRuby = endRuby.parentElement;
-        if (startRuby) range.setStartBefore(startRuby);
-        if (endRuby) range.setEndAfter(endRuby);
+        // Snap start: if the range starts inside a ruby, move start to before that ruby
+        let node = range.startContainer;
+        let startRuby = null;
+        while (node && node !== document.body) {
+            if (node.tagName === 'RUBY') { startRuby = node; break; }
+            node = node.parentElement;
+        }
+        if (startRuby) {
+            range.setStartBefore(startRuby);
+        }
+
+        // Snap end: if the range ends inside a ruby, move end to after that ruby
+        node = range.endContainer;
+        let endRuby = null;
+        while (node && node !== document.body) {
+            if (node.tagName === 'RUBY') { endRuby = node; break; }
+            node = node.parentElement;
+        }
+        if (endRuby) {
+            range.setEndAfter(endRuby);
+        }
     }
 
-    function smartHighlight(range, color, skipSave) {
-        if (range.startContainer.nodeType === Node.TEXT_NODE && range.startOffset > 0) {
-            const newNode = range.startContainer.splitText(range.startOffset);
-            range.setStart(newNode, 0);
+    function smartHighlight(range, color, skipSave, isRestore) {
+        if (!isRestore) {
+            const scopeRoot = (() => {
+                try {
+                    const anc = range.commonAncestorContainer;
+                    const el = anc.nodeType === Node.ELEMENT_NODE ? anc : anc.parentElement;
+                    return el.closest('.tooltip, .tooltipContainer, #article, .article, .mainContent') || document.body;
+                } catch(e) { return document.body; }
+            })();
+            scopeRoot.querySelectorAll('span[data-highlight-id]').forEach(span => {
+                if (!span.isConnected) return;
+                try {
+                    const sr = document.createRange();
+                    sr.selectNode(span);
+                    const endsBeforeStart = sr.compareBoundaryPoints(Range.END_TO_START, range) >= 0;
+                    const startsAfterEnd  = sr.compareBoundaryPoints(Range.START_TO_END, range) <= 0;
+                    if (!endsBeforeStart && !startsAfterEnd) unwrapSpan(span);
+                } catch(e) {}
+            });
         }
-        if (range.endContainer.nodeType === Node.TEXT_NODE && range.endOffset < range.endContainer.textContent.length) {
-            range.endContainer.splitText(range.endOffset);
+        const originalRange = range.cloneRange();
+        const splitRange = range.cloneRange();
+        if (!isRestore) {
+            if (splitRange.startContainer.nodeType === Node.TEXT_NODE && splitRange.startOffset > 0) {
+                const newNode = splitRange.startContainer.splitText(splitRange.startOffset);
+                splitRange.setStart(newNode, 0);
+            }
+            if (splitRange.endContainer.nodeType === Node.TEXT_NODE && splitRange.endOffset < splitRange.endContainer.textContent.length) {
+                splitRange.endContainer.splitText(splitRange.endOffset);
+            }
+            snapRangeToRubyBoundaries(splitRange);
         }
-        snapRangeToRubyBoundaries(range);
-        const frag = range.cloneContents();
+        const frag = splitRange.cloneContents();
         const rubyElems = frag.querySelectorAll('ruby');
         const highlightID = 'hl_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
@@ -2918,6 +3701,11 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             if (!parent.classList || !parent.classList.contains('b')) return false;
             return /^[\+\*\#]+$/.test(node.textContent.trim());
         }
+        function isPunctuationOnly(node) {
+            if (node.nodeType !== Node.TEXT_NODE) return false;
+            const text = (node.textContent || '').trim();
+            return /^[\s\p{P}]*$/u.test(text);
+        }
         function wrapTextNode(textNode) {
             let p = textNode.parentElement;
             while (p) { if (p.tagName === 'RT') return; if (p.tagName === 'RUBY') break; p = p.parentElement; }
@@ -2930,52 +3718,137 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         }
 
         if (rubyElems.length) {
-            const liveRubies = [], liveTextNodes = [];
-            const startEl = (range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer);
-            const endEl = (range.endContainer.nodeType === Node.TEXT_NODE ? range.endContainer.parentElement : range.endContainer);
-            let para = startEl.closest('p, div.v, div.sb, div.sc, li, div.du, div.dc, h1, h2, h3, h4') || startEl.parentElement;
-            const endPara = endEl.closest('p, div.v, div.sb, div.sc, li, div.du, div.dc, h1, h2, h3, h4') || endEl.parentElement;
-            if (para && endPara && para !== endPara) { para = para.parentElement; while (para && !para.contains(endPara)) para = para.parentElement; }
-            if (para) {
-                const nodeWalker = document.createTreeWalker(para, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
-                while (nodeWalker.nextNode()) {
-                    const node = nodeWalker.currentNode;
-                    try {
-                        const nr = document.createRange(); nr.selectNode(node);
-                        if (nr.compareBoundaryPoints(Range.START_TO_END, range) <= 0) continue;
-                        if (nr.compareBoundaryPoints(Range.END_TO_START, range) >= 0) continue;
-                    } catch(e) { continue; }
-                    if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'RUBY') {
-                        liveRubies.push(node);
-                    } else if (node.nodeType === Node.TEXT_NODE) {
-                        let insideRuby = false, insideHighlight = false;
-                        let anc = node.parentElement;
-                        while (anc && anc !== para) {
-                            if (anc.tagName === 'RUBY') { insideRuby = true; break; }
-                            if (anc.getAttribute('data-highlight-id')) { insideHighlight = true; break; }
-                            anc = anc.parentElement;
+            const liveTargets = [];
+
+            // Scope to tooltip if inside one, otherwise the full article
+            const rangeAnchor = range.startContainer.nodeType === Node.TEXT_NODE
+                ? range.startContainer.parentElement : range.startContainer;
+            const scopeRoot =
+                (rangeAnchor && rangeAnchor.closest('.tooltip, .tooltipContainer')) ||
+                document.querySelector('#article, .article, .mainContent') ||
+                document.body;
+            const allRubies = Array.from(scopeRoot.querySelectorAll('ruby'));
+            if (!allRubies.length) return;
+
+            // ── Primary: CJK text match — works on iOS and desktop, most precise ──
+            const rawSel = window.__savedHighlightText || window.getSelection()?.toString() || '';
+            const selCJK = rawSel.replace(/[^\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/g, '');
+
+            if (!isRestore && selCJK.length > 0) {
+                const rubyCJK = allRubies.map(rb =>
+                    (rb.querySelector('rb')?.textContent || rb.textContent || '')
+                        .replace(/[^\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/g, '')
+                );
+
+                // Find which rubies fall inside the actual selection range first,
+                // then use their position to anchor the CJK string search — this
+                // prevents indexOf from matching an earlier identical occurrence.
+                const sel = window.getSelection();
+                const activeRange = (sel && sel.rangeCount && !sel.isCollapsed)
+                    ? sel.getRangeAt(0).cloneRange()
+                    : (window.__savedHighlightRange || range);
+
+                // Find the index of the first ruby that overlaps the selection range
+                let anchorRubyIdx = -1;
+                if (activeRange && !activeRange.collapsed) {
+                    for (let i = 0; i < allRubies.length; i++) {
+                        try {
+                            const rr = document.createRange();
+                            rr.selectNode(allRubies[i]);
+                            // Ruby overlaps range if: ruby doesn't end before range starts
+                            // AND ruby doesn't start after range ends
+                            const endsBeforeStart = rr.compareBoundaryPoints(Range.END_TO_START, activeRange) >= 0;
+                            const startsAfterEnd  = rr.compareBoundaryPoints(Range.START_TO_END, activeRange) <= 0;
+                            if (!endsBeforeStart && !startsAfterEnd) {
+                                anchorRubyIdx = i;
+                                break;
+                            }
+                        } catch(e) {}
+                    }
+                }
+
+                // Convert anchor ruby index to a CJK string offset
+                let searchFromCJK = 0;
+                if (anchorRubyIdx > 0) {
+                    for (let i = 0; i < anchorRubyIdx; i++) searchFromCJK += rubyCJK[i].length;
+                }
+
+                const fullCJK = rubyCJK.join('');
+                const matchPos = fullCJK.indexOf(selCJK, searchFromCJK);
+
+                if (matchPos !== -1) {
+                    let charCount = 0;
+                    let startIdx = -1, endIdx = -1;
+                    for (let i = 0; i < allRubies.length; i++) {
+                        const len = rubyCJK[i].length;
+                        if (startIdx === -1 && charCount + len > matchPos) startIdx = i;
+                        if (charCount + len >= matchPos + selCJK.length) { endIdx = i; break; }
+                        charCount += len;
+                    }
+                    if (startIdx !== -1 && endIdx !== -1) {
+                        for (let i = startIdx; i <= endIdx; i++) {
+                            if (!allRubies[i].closest('span[data-highlight-id]'))
+                                liveTargets.push(allRubies[i]);
                         }
-                        if (!insideRuby && !insideHighlight && node.textContent.trim() !== '' && !isFootnoteMarker(node) && !isReferenceSymbol(node)) {
-                        liveTextNodes.push(node);
                     }
                 }
             }
-            function makeHlSpan() {
-                const span = document.createElement('span');
-                span.style.backgroundColor = color; span.style.color = 'black';
-                span.setAttribute('data-highlight-id', highlightID);
-                addRemoveListener(span); return span;
-            }
-            liveRubies.forEach(ruby => {
-                if (ruby.closest('span[data-highlight-id]')) return;
-                const span = makeHlSpan(); ruby.parentNode.replaceChild(span, ruby); span.appendChild(ruby);
-            });
-            liveTextNodes.forEach(n => {
-                if (n.parentNode && !n.parentNode.getAttribute('data-highlight-id')) {
-                    const span = makeHlSpan(); n.parentNode.replaceChild(span, n); span.appendChild(n);
+
+            // ── Fallback: range geometry — used when CJK match fails, text is empty, or restoring ──
+            if (liveTargets.length === 0) {
+                // During restoration always use the passed-in range directly
+                const r = isRestore ? range : (() => {
+                    const sel = window.getSelection();
+                    return (sel && sel.rangeCount && !sel.isCollapsed)
+                        ? sel.getRangeAt(0).cloneRange()
+                        : (window.__savedHighlightRange || range);
+                })();
+
+                if (r && !r.collapsed) {
+                    allRubies.forEach(ruby => {
+                        if (ruby.closest('span[data-highlight-id]')) return;
+                        try {
+                            const rr = document.createRange();
+                            rr.selectNode(ruby);
+                            // During live selection: strict < 0 excludes any ruby whose
+                            // start coincides exactly with the selection end — the iOS
+                            // precision fix. During restoration: use <= 0 (inclusive) so
+                            // rubies at the exact boundary are not skipped.
+                            const endCheck = isRestore
+                                ? rr.compareBoundaryPoints(Range.START_TO_END, r) <= 0
+                                : rr.compareBoundaryPoints(Range.START_TO_END, r) < 0;
+                            if (rr.compareBoundaryPoints(Range.END_TO_START, r) > 0 && endCheck) {
+                                liveTargets.push(ruby);
+                            }
+                        } catch(e) {}
+                    });
                 }
-            });
             }
+
+            if (liveTargets.length) {
+                function makeHlSpan() {
+                    const span = document.createElement('span');
+                    span.style.backgroundColor = color;
+                    span.style.color = 'black';
+                    span.setAttribute('data-highlight-id', highlightID);
+                    addRemoveListener(span);
+                    return span;
+                }
+                setTimeout(() => {
+                    liveTargets.forEach(ruby => {
+                        const span = makeHlSpan();
+                        ruby.parentNode.replaceChild(span, ruby);
+                        span.appendChild(ruby);
+                    });
+                    if (!skipSave) {
+                        const anySpan = document.querySelector(`span[data-highlight-id="${highlightID}"]`);
+                        const container = (anySpan && anySpan.closest('.tooltip, .tooltipContainer')) || document.body;
+                        debouncedSave(container);
+                    }
+                }, 0);
+            }
+
+            return;
         } else {
             const startEl2 = (range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer);
             const endEl2 = (range.endContainer.nodeType === Node.TEXT_NODE ? range.endContainer.parentElement : range.endContainer);
@@ -2999,7 +3872,8 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                         }
                     });
                     while (tw.nextNode()) {
-                        const n = tw.currentNode; if (!n.textContent.trim()) continue;
+                        const n = tw.currentNode; 
+                        if (!n.textContent.trim() || isPunctuationOnly(n)) continue;
                         try {
                             const wr = document.createRange(); wr.selectNode(wrap);
                             if (!(wr.compareBoundaryPoints(Range.END_TO_START, range) > 0) && !(wr.compareBoundaryPoints(Range.START_TO_END, range) < 0)) {
@@ -3022,7 +3896,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 const plainNodes = [];
                 while (plainTw.nextNode()) {
                     const n = plainTw.currentNode;
-                    if (!n.textContent.trim() || isFootnoteMarker(n) || isReferenceSymbol(n)) continue;
+                    if (!n.textContent.trim() || isFootnoteMarker(n) || isReferenceSymbol(n) || isPunctuationOnly(n)) continue;
                     try {
                         const wr = document.createRange(); wr.selectNode(n);
                         if (!(wr.compareBoundaryPoints(Range.END_TO_START, range) > 0) && !(wr.compareBoundaryPoints(Range.START_TO_END, range) < 0)) {
@@ -3041,13 +3915,13 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                     textNodes.push(node);
                 }
                 textNodes.forEach(n => wrapTextNode(n));
-                range.deleteContents(); range.insertNode(frag);
+                splitRange.deleteContents(); splitRange.insertNode(frag);
             }
-        }
-        if (!skipSave) {
-            const anySpan = document.querySelector(`span[data-highlight-id="${highlightID}"]`);
-            const container = (anySpan && anySpan.closest('.tooltip, .tooltipContainer')) || document.body;
-            debouncedSave(container);
+            if (!skipSave) {
+                const anySpan = document.querySelector(`span[data-highlight-id="${highlightID}"]`);
+                const container = (anySpan && anySpan.closest('.tooltip, .tooltipContainer')) || document.body;
+                debouncedSave(container);
+            }
         }
     }
 
@@ -3080,7 +3954,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
 
         const palette = document.createElement('div');
         palette.id = 'wol_hl_float_palette';
-        palette.style.cssText = 'position:fixed;z-index:500;background:#f0f0f0;border:1px solid #d0d0d0;border-radius:8px;padding:0 10px;height:44px;display:flex;align-items:center;gap:13px;box-shadow:0 2px 10px rgba(0,0,0,0.12);user-select:none;-webkit-user-select:none;touch-action:none;cursor:grab;top:56px;left:10px;';
+        palette.style.cssText = 'position:fixed;z-index:500;background:#f0f0f0;border:1px solid #d0d0d0;border-radius:8px;padding:0 10px;height:44px;display:flex;align-items:center;gap:13px;box-shadow:0 2px 10px rgba(0,0,0,0.12);user-select:none;-webkit-user-select:none;touch-action:manipulation;cursor:grab;top:56px;left:10px;';
         const handle = document.createElement('div');
         handle.style.cssText = 'color:#bbb;font-size:15px;cursor:grab;padding:0 2px;line-height:1;flex-shrink:0;';
         handle.textContent = '⠿'; handle.title = 'Drag to move';
@@ -3151,18 +4025,34 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     function hideFloatingPalette() {
         const p = document.getElementById('wol_hl_float_palette');
         if (p) p.remove();
-
     }
 
     function applyHighlightColor(c) {
-        if (!currentRange) { alert(t('selectFirst')); return; }
+        function validRange(r) {
+            if (!r || r.collapsed) return null;
+            try { if (!r.startContainer.isConnected || !r.endContainer.isConnected) return null; } catch(e) { return null; }
+            return r;
+        }
+        let range = validRange(currentRange) || validRange(window.__savedHighlightRange);
+        if (!range) {
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount && !sel.isCollapsed) range = sel.getRangeAt(0).cloneRange();
+        }
+        if (!range) { alert(t('selectFirst')); return; }
         if (_hlCooldown) return;
         _hlCooldown = true;
-        setTimeout(() => { _hlCooldown = false; }, 600);
-        const rangeToHighlight = currentRange.cloneRange();
+        const _cooldownTimer = setTimeout(() => { _hlCooldown = false; }, 600);
+        const rangeToHighlight = range.cloneRange();
         currentRange = null;
+        window.__savedHighlightRange = null;
         window.getSelection && window.getSelection().removeAllRanges();
-        try { smartHighlight(rangeToHighlight, c); } catch(err) { console.warn('Highlight error:', err); }
+        try {
+            smartHighlight(rangeToHighlight, c);
+        } catch(err) {
+            console.warn('Highlight error:', err);
+            clearTimeout(_cooldownTimer);
+            _hlCooldown = false;
+        }
     }
 
     function buildHighlightIconBtn() {
@@ -3269,39 +4159,31 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     function _importUnified(silentPinyin) {
         if (!db) { alert(t('dbNotReady')); return; }
         const input = document.createElement('input'); input.type = 'file'; input.accept = 'application/json,.json';
+        input.style.cssText = 'position:fixed;top:-100px;left:-100px;opacity:0;';
+        document.body.appendChild(input);
         input.onchange = (e) => {
+            document.body.removeChild(input);
             const file = e.target.files[0]; if (!file) return;
             const reader = new FileReader();
             reader.onerror = () => alert('Error reading file: ' + reader.error);
             reader.onload = (event) => {
                 try {
                     const raw = JSON.parse(event.target.result);
-                    // Detect format:
-                    // Unified: { pinyin: {}, highlights: [...], notes: {} }
-                    // Old HL-only: [{pageID, highlights}, ...]
                     let hlData, pinyinData, notesData;
                     if (Array.isArray(raw)) {
-                        // Old format — highlights array only
                         hlData = raw; pinyinData = null; notesData = null;
                     } else if (raw && Array.isArray(raw.highlights)) {
-                        // Unified format
                         hlData = raw.highlights;
                         pinyinData = (raw.pinyin && Object.keys(raw.pinyin).length > 0) ? raw.pinyin : null;
                         notesData = (raw.notes && Object.keys(raw.notes).length > 0) ? raw.notes : null;
                     } else { alert(t('invalidFormat')); return; }
-
-                    // Restore notes unconditionally (they're device-specific path keys)
                     if (notesData) {
                         Object.entries(notesData).forEach(([k, v]) => localStorage.setItem(k, v));
                     }
-
-                    // Ask about pinyin if found and not silent
                     const doPinyin = pinyinData && (silentPinyin || confirm(t('pinyinFound')));
-
                     if (doPinyin) {
                         Object.entries(pinyinData).forEach(([k, v]) => localStorage.setItem(k, JSON.stringify(v)));
                     }
-
                     if (hlData && hlData.length > 0) {
                         if (!db.objectStoreNames.contains('highlights')) { alert(t('dbNotReady')); return; }
                         const transaction = db.transaction(['highlights'], 'readwrite');
@@ -3316,7 +4198,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                     }
                 } catch(err) { alert(t('invalidJSON')); }
             };
-            setTimeout(() => reader.readAsText(file), 300);
+            reader.readAsText(file);
         };
         input.click();
     }
@@ -3381,84 +4263,310 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     }
 
     // ── PhotoSwipe alt text ──
-    const imageAltTextMap = new Map();
-    let pswpActive = false, currentAltDiv = null;
+    (function initPhotoSwipeAltText() {
+        let pswpActive = false;
+        let _activePswp = null;
 
-    function resetPhotoSwipeState(pswp, imgObserver, closeObserver) {
-        if (imgObserver) imgObserver.disconnect();
-        if (closeObserver) closeObserver.disconnect();
-        pswpActive = false; currentAltDiv = null;
-        pswp.querySelectorAll('#pswp-alt-text-display').forEach(div => { div.style.opacity = '0'; setTimeout(() => div.remove(), 200); });
-    }
-    function handlePhotoSwipeOpen(pswp) {
-        resetPhotoSwipeState(pswp); pswpActive = true;
-        const altDiv = document.createElement('div'); altDiv.id = 'pswp-alt-text-display';
-        altDiv.style.cssText = 'position:absolute;left:12px;right:12px;background:rgba(0,0,0,0.85);color:#fff;padding:8px 12px;border-radius:6px;font-size:15px;line-height:1.5;text-align:left;max-width:calc(100% - 24px);z-index:10050;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;text-shadow:0 1px 3px rgba(0,0,0,0.9);pointer-events:auto;user-select:text;visibility:hidden;opacity:0;transition:opacity 0.2s ease;-webkit-transform:translate3d(0,0,0);backface-visibility:hidden;';
-        altDiv.addEventListener('click', e => { if (e.target === altDiv) altDiv.remove(); });
-        pswp.appendChild(altDiv); currentAltDiv = altDiv;
-        const container = pswp.querySelector('.pswp__container');
-        if (container) {
-            // Watch only childList (actual slide changes) — attribute/style mutations
-            // are triggered by mouse movement and cause constant flicker if observed.
-            const imgObserver = new MutationObserver(() => { if (pswpActive) displayAltText(pswp); });
-            imgObserver.observe(container, { childList: true, subtree: true });
-            const closeObserver = new MutationObserver(() => { if (!pswp.classList.contains('pswp--open')) resetPhotoSwipeState(pswp, imgObserver, closeObserver); });
-            closeObserver.observe(pswp, { attributes: true, attributeFilter: ['class'] });
+        function normalizeImageKey(src) {
+            try {
+                if (!src) return '';
+                const u = new URL(String(src), window.location.href);
+                return u.origin + u.pathname;
+            } catch(_) {}
+            return String(src || '').trim();
         }
-        displayAltText(pswp);
-    }
-    function displayAltText(pswp) {
-        if (!pswpActive) return;
-        const last = imageAltTextMap.get('lastClicked'); if (!last) return;
-        const altDiv = currentAltDiv || pswp.querySelector('#pswp-alt-text-display'); if (!altDiv) return;
-        const img = pswp.querySelector('.pswp__img:not(.pswp__img--placeholder)'); if (!img) return;
-        // Already showing this alt text — don't re-run and cause a visibility flicker.
-        if (altDiv.textContent === last.altText && altDiv.style.opacity === '1') return;
-        altDiv.textContent = last.altText;
-        const positionAndShow = () => {
-            if (!pswpActive || !img.offsetHeight) return;
-            const imgRect = img.getBoundingClientRect(), pswpRect = pswp.getBoundingClientRect();
-            const top = Math.max(imgRect.top - pswpRect.top - altDiv.offsetHeight - 10, 30);
-            altDiv.style.top = top + 'px'; altDiv.style.visibility = 'visible';
-            requestAnimationFrame(() => { altDiv.style.opacity = '1'; });
-        };
-        const waitForLayout = () => {
-            if (img.complete && img.naturalWidth > 0 && img.offsetHeight > 0) {
-                const container = pswp.querySelector('.pswp__container');
-                let fired = false;
-                const triggerPosition = () => { if (fired) return; fired = true; requestAnimationFrame(() => positionAndShow()); };
-                if (container) container.addEventListener('transitionend', triggerPosition, { once: true });
-                setTimeout(triggerPosition, 50);
-            } else { img.addEventListener('load', waitForLayout, { once: true }); }
-        };
-        waitForLayout();
-    }
-    function initPhotoSwipeAltText() {
-        document.addEventListener('click', function(e) {
-            const img = e.target.tagName === 'IMG' ? e.target : e.target.querySelector('img');
-            if (img && (img.alt || img.title)) imageAltTextMap.set('lastClicked', { altText: img.alt || img.title, timestamp: Date.now(), imgSrc: img.src || img.getAttribute('data-src') || '' });
-        }, true);
-        const observer = new MutationObserver((mutations) => {
-            mutations.forEach(m => {
-                if (m.type !== 'attributes' || m.attributeName !== 'class') return;
-                const pswp = m.target;
-                if (!pswp.classList.contains('pswp')) return;
-                const wasOpen = m.oldValue && m.oldValue.split(' ').includes('pswp--open');
-                const isOpen = pswp.classList.contains('pswp--open');
-                // Only fire on the transition TO open, not on every subsequent class tweak
-                if (isOpen && !wasOpen) handlePhotoSwipeOpen(pswp);
-            });
+
+        function resolveAltText(img) {
+            if (!img) return '';
+            const direct = (img.getAttribute('alt') || img.getAttribute('title') || '').trim();
+            if (direct) return direct;
+            const keys = [
+                normalizeImageKey(img.currentSrc || ''),
+                normalizeImageKey(img.getAttribute('src') || ''),
+                normalizeImageKey(img.getAttribute('data-img-small-src') || '')
+            ].filter(Boolean);
+            if (!keys.length) return '';
+            for (const c of document.querySelectorAll('img[alt], img[title]')) {
+                if (c.closest('.pswp')) continue;
+                const ck = [
+                    normalizeImageKey(c.currentSrc || ''),
+                    normalizeImageKey(c.getAttribute('src') || ''),
+                    normalizeImageKey(c.getAttribute('data-img-small-src') || '')
+                ];
+                if (ck.some(k => k && keys.includes(k))) {
+                    const text = (c.getAttribute('alt') || c.getAttribute('title') || '').trim();
+                    if (text) return text;
+                }
+            }
+            return '';
+        }
+
+        function getIntersectionArea(a, b) {
+            const xOverlap = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
+            const yOverlap = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+            return xOverlap * yOverlap;
+        }
+
+        function getCurrentImg(pswp) {
+            const activeItem = pswp.querySelector('.pswp__item.pswp__item--active, .pswp__item.pswp__item--current');
+            if (activeItem) {
+                const activeImg = activeItem.querySelector('.pswp__img:not(.pswp__img--placeholder)');
+                if (activeImg && activeImg.naturalWidth > 0) return activeImg;
+            }
+            const imgs = Array.from(pswp.querySelectorAll('.pswp__img:not(.pswp__img--placeholder)'));
+            if (!imgs.length) return null;
+            const pswpRect = pswp.getBoundingClientRect();
+            let best = null;
+            let bestArea = 0;
+            for (const img of imgs) {
+                const r = img.getBoundingClientRect();
+                if (r.width < 20 || r.height < 20) continue;
+                const area = getIntersectionArea(r, pswpRect);
+                if (area > bestArea) {
+                    bestArea = area;
+                    best = img;
+                }
+            }
+            if (best) return best;
+            return imgs[0];
+        }
+
+        function getOrCreateOverlay(pswp) {
+            let altDiv = pswp.querySelector('#pswp-alt-text-display');
+            if (altDiv) return altDiv;
+            altDiv = document.createElement('div');
+            altDiv.id = 'pswp-alt-text-display';
+            altDiv.style.cssText = [
+                'position:absolute',
+                'left:12px', 'right:12px',
+                'background:rgba(0,0,0,0.85)',
+                'color:#fff',
+                'padding:8px 12px',
+                'border-radius:6px',
+                'font-size:15px',
+                'line-height:1.5',
+                'text-align:left',
+                'max-width:calc(100% - 24px)',
+                'z-index:10050',
+                'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif',
+                'text-shadow:0 1px 3px rgba(0,0,0,0.9)',
+                'pointer-events:auto',
+                'user-select:text',
+                'visibility:hidden',
+                'opacity:0',
+                'transition:opacity 0.2s ease'
+            ].join(';');
+            pswp.appendChild(altDiv);
+            return altDiv;
+        }
+
+        function isImageFitSize(pswp, img) {
+            if (!img) return false;
+            const imgRect = img.getBoundingClientRect();
+            const pswpRect = pswp.getBoundingClientRect();
+            if (imgRect.width <= 0 || imgRect.height <= 0 || pswpRect.width <= 0 || pswpRect.height <= 0) return false;
+            const widthRatio = imgRect.width / pswpRect.width;
+            const heightRatio = imgRect.height / pswpRect.height;
+            return Math.max(widthRatio, heightRatio) <= 1.05;
+        }
+
+        function showOverlay(pswp) {
+            if (!pswpActive) return;
+            if (pswp._zoomDismissed || pswp._tapDismissed) return;
+            const img = getCurrentImg(pswp);
+            if (!img) return;
+            if (!isImageFitSize(pswp, img)) {
+                hideOverlay(pswp);
+                return;
+            }
+            const text = resolveAltText(img);
+            if (!text) { hideOverlay(pswp); return; }
+            const altDiv = getOrCreateOverlay(pswp);
+            const currIdx = window.pswp && window.pswp.currItem ? window.pswp.currItem.index : '?';
+            console.log(`[showOverlay] Index=${currIdx}, Src=${img.src.slice(-40)}, Text="${text.substring(0,30)}..."`);
+            const doPosition = () => {
+                if (!pswpActive) return;
+                altDiv.textContent = text;
+                altDiv.style.visibility = 'hidden';
+                altDiv.style.opacity = '0';
+                altDiv.style.top = '0px';
+                const overlayH = altDiv.offsetHeight;
+                const imgRect = img.getBoundingClientRect();
+                const pswpRect = pswp.getBoundingClientRect();
+                const topRelImg = imgRect.top - pswpRect.top - overlayH - 8;
+                const top = Math.max(topRelImg, 8);
+                altDiv.style.top = top + 'px';
+                altDiv.style.visibility = 'visible';
+                altDiv.style.opacity = '1';
+            };
+            altDiv.style.opacity = '0';
+            altDiv.style.visibility = 'hidden';
+            if (img.complete && img.naturalWidth > 0) {
+                setTimeout(doPosition, 50);
+            } else {
+                img.addEventListener('load', () => setTimeout(doPosition, 50), { once: true });
+            }
+        }
+
+        function hideOverlay(pswp) {
+            const altDiv = pswp.querySelector('#pswp-alt-text-display');
+            if (!altDiv) return;
+            altDiv.style.opacity = '0';
+            altDiv.style.visibility = 'hidden';
+        }
+
+        function scheduleShow(pswp, delay) {
+            clearTimeout(pswp._altTimer);
+            pswp._altTimer = setTimeout(() => showOverlay(pswp), delay);
+        }
+
+        function handlePSWPOpen(pswp) {
+            pswpActive = true;
+            _activePswp = pswp;
+
+            pswp.querySelectorAll('#pswp-alt-text-display').forEach(d => d.remove());
+
+            // Per-slide state — keyed by img src so each slide is independent
+            const dismissedSlides = new Set(); // srcs manually tap-dismissed
+            let isZoomed = false;
+            let lastImgSrc = null;
+            let lastTranslateX = null;
+            let swipeSettled = false;
+
+            // ── Zoom detection via touch/wheel events ──
+            pswp._onTouchMove = (e) => {
+                if (e.touches.length >= 2 && !isZoomed) {
+                    isZoomed = true;
+                    hideOverlay(pswp);
+                    clearTimeout(pswp._altTimer);
+                }
+            };
+            pswp._onWheel = (e) => {
+                if (e.ctrlKey || e.deltaY < 0) {
+                    isZoomed = true;
+                    hideOverlay(pswp);
+                    clearTimeout(pswp._altTimer);
+                }
+            };
+            pswp.addEventListener('touchmove', pswp._onTouchMove, { passive: true });
+            pswp.addEventListener('wheel', pswp._onWheel, { passive: true });
+
+            // ── Dismiss on tap of the overlay ──
+            pswp._altTapHandler = (e) => {
+                const altDiv = pswp.querySelector('#pswp-alt-text-display');
+                if (!altDiv) return;
+                if (!altDiv.contains(e.target) && e.target !== altDiv) return;
+                e.stopPropagation();
+                e.preventDefault();
+                const img = getCurrentImg(pswp);
+                if (img) dismissedSlides.add(img.src || img.currentSrc);
+                hideOverlay(pswp);
+            };
+            pswp.addEventListener('touchend', pswp._altTapHandler, { capture: true, passive: false });
+            pswp.addEventListener('click', pswp._altTapHandler, { capture: true });
+
+            const container = pswp.querySelector('.pswp__container');
+
+            // ── Single unified poll ──
+            clearInterval(pswp._altPollInterval);
+            pswp._altPollInterval = setInterval(() => {
+                if (!pswpActive) { clearInterval(pswp._altPollInterval); return; }
+
+                const currentImg = getCurrentImg(pswp);
+                const currentSrc = currentImg ? (currentImg.src || currentImg.currentSrc || '') : '';
+
+                // ── Slide change detection ──
+                if (currentSrc && currentSrc !== lastImgSrc) {
+                    lastImgSrc = currentSrc;
+                    isZoomed = false;
+                    swipeSettled = false;
+                    lastTranslateX = null;
+                }
+
+                // ── Zoom return detection (rendered width vs container width) ──
+                if (isZoomed && currentImg && currentImg.naturalWidth > 0) {
+                    const renderedW = currentImg.getBoundingClientRect().width;
+                    const pswpW = pswp.getBoundingClientRect().width;
+                    if (renderedW > 0 && pswpW > 0 && renderedW <= pswpW * 1.1) {
+                        isZoomed = false;
+                        if (!dismissedSlides.has(currentSrc)) scheduleShow(pswp, 300);
+                    }
+                }
+
+                // ── Swipe detection ──
+                if (!container) return;
+                const style = window.getComputedStyle(container);
+                const matrix = style.transform || style.webkitTransform;
+                const match = matrix && matrix.match(/matrix\([^,]+,[^,]+,[^,]+,[^,]+,([^,]+),/);
+                const tx = match ? parseFloat(match[1]) : null;
+                if (tx === null) return;
+                if (lastTranslateX === null) { lastTranslateX = tx; return; }
+                const delta = Math.abs(tx - lastTranslateX);
+                if (delta > 2) {
+                    swipeSettled = false;
+                    hideOverlay(pswp);
+                    clearTimeout(pswp._altTimer);
+                } else if (!swipeSettled) {
+                    swipeSettled = true;
+                    if (!isZoomed && !dismissedSlides.has(currentSrc)) scheduleShow(pswp, 150);
+                }
+                lastTranslateX = tx;
+            }, 50);
+
+            // Show on first open
+            let _firstShowAttempts = 0;
+            const _tryFirstShow = () => {
+                _firstShowAttempts++;
+                const img = getCurrentImg(pswp);
+                if (img && img.offsetHeight > 0) {
+                    lastImgSrc = img.src || img.currentSrc || '';
+                    scheduleShow(pswp, 50);
+                } else if (_firstShowAttempts < 20) {
+                    setTimeout(_tryFirstShow, 80);
+                }
+            };
+            setTimeout(_tryFirstShow, 100);
+        }
+
+        function handlePSWPClose(pswp) {
+            pswpActive = false;
+            _activePswp = null;
+            clearInterval(pswp._altPollInterval);
+            clearTimeout(pswp._altTimer);
+            if (pswp._altTapHandler) {
+                pswp.removeEventListener('touchend', pswp._altTapHandler, { capture: true });
+                pswp.removeEventListener('click', pswp._altTapHandler, { capture: true });
+                pswp._altTapHandler = null;
+            }
+            if (pswp._onTouchMove) { pswp.removeEventListener('touchmove', pswp._onTouchMove); pswp._onTouchMove = null; }
+            if (pswp._onWheel) { pswp.removeEventListener('wheel', pswp._onWheel); pswp._onWheel = null; }
+            pswp.querySelectorAll('#pswp-alt-text-display').forEach(d => d.remove());
+        }
+
+        new MutationObserver(mutations => {
+            for (const m of mutations) {
+                if (m.type !== 'attributes' || m.attributeName !== 'class') continue;
+                const el = m.target;
+                if (!el.classList.contains('pswp')) continue;
+                const wasOpen = m.oldValue && m.oldValue.includes('pswp--open');
+                const isOpen = el.classList.contains('pswp--open');
+                if (isOpen && !wasOpen) handlePSWPOpen(el);
+                else if (!isOpen && wasOpen) handlePSWPClose(el);
+            }
+        }).observe(document.body, {
+            subtree: true, attributes: true,
+            attributeFilter: ['class'], attributeOldValue: true
         });
-        observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'], attributeOldValue: true });
+
         const existing = document.querySelector('.pswp.pswp--open');
-        if (existing) handlePhotoSwipeOpen(existing);
-    }
-    initPhotoSwipeAltText();
+        if (existing) handlePSWPOpen(existing);
+    })();
 
     // Block qu collapse when palette is open
     ['pointerdown','mousedown','click'].forEach(evt => {
         document.addEventListener(evt, (e) => {
             if (!document.getElementById('wol_hl_float_palette')) return;
+            if (e.target.closest('a')) return;
             if (e.target.closest('p.qu')) e.stopImmediatePropagation();
         }, { capture: true });
     });
@@ -3470,10 +4578,145 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 if (node.nodeType === Node.ELEMENT_NODE) {
                     const mode = getMode();
                     function processTooltip(t) {
-                        setTimeout(() => { restoreHighlights(t); addPaletteToTooltip(t); hideReferenceSymbolsInTooltip(t); }, 100);
+                        addPaletteToTooltip(t);
+                        hideReferenceSymbolsInTooltip(t);
                         if (mode === 'study') {
-                            setTimeout(() => { hideReferenceSymbolsInTooltip(t); const content = t.querySelector('.tooltipText, .tooltipContent') || t; applyModeToTooltip(content); }, 400);
+                            setTimeout(() => {
+                                hideReferenceSymbolsInTooltip(t);
+                                const content = t.querySelector('.tooltipText, .tooltipContent') || t;
+                                applyModeToTooltip(content);
+                            }, 400);
                         }
+                        // Restore highlights into the tooltip from ALL keys that
+                        // could contain its highlights: its own tooltip_ key AND
+                        // the matching main-article key. We wait for the tooltip
+                        // content to be fully rendered before attempting restore.
+                        if (!db) return;
+                        const keys = getKeys(t);
+                        const transaction = db.transaction(['highlights'], 'readonly');
+                        const store = transaction.objectStore('highlights');
+                        const allHighlights = new Map();
+                        let processed = 0;
+                        keys.forEach(id => {
+                            const request = store.get(id);
+                            request.onsuccess = () => {
+                                processed++;
+                                const result = request.result;
+                                if (result && result.highlights)
+                                    result.highlights.forEach(h => {
+                                        if (!allHighlights.has(h.text)) allHighlights.set(h.text, h);
+                                    });
+                                if (processed < keys.length) return;
+                                // All keys loaded — attempt restore once content is ready
+                                const attempt = (tries) => {
+                                    const content = t.querySelector('.tooltipText, .tooltipContent, .synopsis');
+                                    if (!content && tries > 0) {
+                                        setTimeout(() => attempt(tries - 1), 80);
+                                        return;
+                                    }
+                                    const highlights = Array.from(allHighlights.values());
+                                    if (!highlights.length) return;
+                                    function pinyinFilter(node) {
+                                        let p = node.parentElement;
+                                        while (p) {
+                                            if (p.tagName === 'RT') return NodeFilter.FILTER_REJECT;
+                                            if (p.classList && p.classList.contains('wol-char-pinyin')) return NodeFilter.FILTER_REJECT;
+                                            if (p.tagName === 'RUBY') break;
+                                            p = p.parentElement;
+                                        }
+                                        return NodeFilter.FILTER_ACCEPT;
+                                    }
+                                    function getTextContent(node) {
+                                        let text = '';
+                                        const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, { acceptNode: pinyinFilter });
+                                        while (walker.nextNode()) text += walker.currentNode.textContent;
+                                        return text;
+                                    }
+                                    function highlightTextInElement(element, searchText, highlight) {
+                                        const fullText = getTextContent(element);
+                                        const index = fullText.indexOf(searchText);
+                                        if (index === -1) return false;
+
+                                        // ── Ruby-page restore: match rubies by position-anchored text ──
+                                        const allRubies = Array.from(element.querySelectorAll('ruby'));
+                                        if (allRubies.length > 0) {
+                                            const cjkRe = /[^\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3000-\u303f\uff00-\uffef]/g;
+                                            const searchCJK = searchText.replace(cjkRe, '');
+                                            if (searchCJK.length > 0) {
+                                                let cursor = 0;
+                                                const rubyStarts = [];
+                                                for (let i = 0; i < allRubies.length; i++) {
+                                                    const rbText = allRubies[i].querySelector('rb')?.textContent || '';
+                                                    const pos2 = fullText.indexOf(rbText, cursor);
+                                                    rubyStarts.push(pos2 === -1 ? cursor : pos2);
+                                                    if (pos2 !== -1) cursor = pos2 + rbText.length;
+                                                }
+                                                const searchEnd = index + searchText.length;
+                                                const targets = [];
+                                                const highlightID = 'hl_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                                                for (let i = 0; i < allRubies.length; i++) {
+                                                    const rStart = rubyStarts[i];
+                                                    const rbText = allRubies[i].querySelector('rb')?.textContent || '';
+                                                    const rEnd = rStart + rbText.length;
+                                                    if (rEnd > index && rStart < searchEnd) {
+                                                        if (!allRubies[i].closest('span[data-highlight-id]'))
+                                                            targets.push(allRubies[i]);
+                                                    }
+                                                }
+                                                if (targets.length) {
+                                                    targets.forEach(ruby => {
+                                                        const span = document.createElement('span');
+                                                        span.style.backgroundColor = highlight.color;
+                                                        span.style.color = 'black';
+                                                        span.setAttribute('data-highlight-id', highlightID);
+                                                        addRemoveListener(span);
+                                                        ruby.parentNode.replaceChild(span, ruby);
+                                                        span.appendChild(ruby);
+                                                    });
+                                                    return true;
+                                                }
+                                            }
+                                        }
+
+                                        // ── Plain text restore (compact mode / no rubies) ──
+                                        const range = document.createRange();
+                                        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, pfo);
+                                        let currentLength = 0, startNode = null, startOffset = 0, endNode = null, endOffset = 0;
+                                        while (walker.nextNode()) {
+                                            const node = walker.currentNode, nodeLength = node.textContent.length;
+                                            if (startNode === null && currentLength + nodeLength > index) { startNode = node; startOffset = index - currentLength; }
+                                            if (currentLength + nodeLength >= index + searchText.length) { endNode = node; endOffset = (index + searchText.length) - currentLength; break; }
+                                            currentLength += nodeLength;
+                                        }
+                                        if (startNode && endNode) {
+                                            try { range.setStart(startNode, startOffset); range.setEnd(endNode, endOffset); smartHighlight(range, highlight.color, true); return true; }
+                                            catch (e) { return false; }
+                                        }
+                                        return false;
+                                    }
+                                    const searchRoot = content || t;
+                                    const headings = Array.from(searchRoot.querySelectorAll('h1, h2, h3, h4'))
+                                        .filter(el => !el.closest('.documentNavigation, .noTooltips'));
+                                    const bodies = Array.from(searchRoot.querySelectorAll('div[data-pid], p, div.v, div.sb, div.sc, li, div.du, div.dc'))
+                                        .filter(el => !el.closest('.documentNavigation, .noTooltips'));
+                                    const paragraphs = [...headings, ...bodies];
+                                    highlights.forEach(highlight => {
+                                        if (t.querySelector(`span[data-highlight-id="${highlight.id}"]`)) return;
+                                        if (highlight.pid) {
+                                            const pidEl = searchRoot.querySelector(`[data-pid="${highlight.pid}"]`);
+                                            if (pidEl && !pidEl.querySelector(`span[data-highlight-id="${highlight.id}"]`)) {
+                                                if (highlightTextInElement(pidEl, highlight.text, highlight)) return;
+                                            }
+                                        }
+                                        for (let i = 0; i < paragraphs.length; i++) {
+                                            if (paragraphs[i].querySelector(`span[data-highlight-id="${highlight.id}"]`)) continue;
+                                            if (highlightTextInElement(paragraphs[i], highlight.text, highlight)) break;
+                                        }
+                                    });
+                                };
+                                attempt(8);
+                            };
+                        });
                     }
                     if (node.classList && (node.classList.contains('tooltip') || node.classList.contains('tooltipContainer'))) processTooltip(node);
                     node.querySelectorAll && node.querySelectorAll('.tooltip, .tooltipContainer').forEach(processTooltip);
@@ -3527,7 +4770,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         for (const li of document.querySelectorAll('.documentMenu li.toggle')) { if (pattern.test(li.textContent)) return li; }
         return null;
     };
-    const findReferenceToggle = () => findToggleItem(/Reference Symbols|脚注符号|참조 기호|ふりがな|Símbolos de las notas/i);
+    const findReferenceToggle = () => findToggleItem(/Reference Symbols|脚注符号|참조 기호|ふりがな|Símbolos de las notas|\+.*\*|\*.*\+/i);
     const findNativePinyinToggle = () => findToggleItem(/拼音|Pinyin|pinyin/i);
     const isEnglishPage = () => CURRENT_LANG_CONFIG.isPage();
     const isChinesePage = () => location.href.includes('/lp-chs') || location.href.includes('/cmn-Hans/');
@@ -3615,9 +4858,11 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             let absTop = 0, node = el;
             while (node) { absTop += node.offsetTop; node = node.offsetParent; }
             window.scrollTo({ top: absTop - offset, behavior: 'smooth' });
-            const origBg = el.style.background;
-            el.style.background = '#fff9c0';
-            setTimeout(() => { el.style.background = origBg; }, 1000);
+            if (!el.closest('.gen-field, fieldset, .du-bgColor--warmGray-50')) {
+                const origBg = el.style.background;
+                el.style.background = '#fff9c0';
+                setTimeout(() => { el.style.background = origBg; }, 1000);
+            }
         }, delay);
     }
 
@@ -3970,6 +5215,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         // ── Shared helper: style a question paragraph as a grey box ──
         function styleQuestionAsBox(questionP) {
             if (!questionP || questionP.dataset.greyBoxDone) return;
+            if (!questionP.matches('p.qu, p[data-pid], h1[data-pid], h2[data-pid], h3[data-pid], h4[data-pid]')) return;
             questionP.style.backgroundColor = '#f2f2f2';
             questionP.style.borderLeft = '6px solid #c6c6c6';
             questionP.style.padding = '10px 12px';
@@ -4100,14 +5346,17 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 }
                 .wol-ta-field.open { display: block !important; }
 
-                /* Hide original disabled WOL gen-field */
-                .gen-field { display: none !important; }
+                /* Hide only gen-field containers that hold a textarea (our custom one replaces them) */
+                .gen-field[data-wol-ta-hidden] { display: none !important; }
             `;
             document.head.appendChild(s);
         }
 
         function getTextareaKey(pid) {
-            return STORE_KEY_PREFIX + window.location.pathname.replace(/\/$/, '') + '__' + pid;
+            let path = window.location.pathname.replace(/\/$/, '');
+            const syncMatch = path.match(/\/(?:d|m|b)sync\/(?:[^\/]+\/){1,4}(lp-chs(?:-rb)?)\/(\d+)/);
+            if (syncMatch) path = '/cmn-Hans/wol/d/r23/' + syncMatch[1] + '/' + syncMatch[2];
+            return STORE_KEY_PREFIX + path + '__' + pid;
         }
 
         function autoResize(ta) {
@@ -4120,15 +5369,22 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
 
         function processGenField(genField) {
             if (genField.dataset.wolTaProcessed) return;
+            // Only process gen-fields that contain a disabled textarea (WOL study notes)
+            // Mark as "seen" only when textarea is present; otherwise stay unprocessed so
+            // the MutationObserver can retry when the textarea is injected later.
+            if (!genField.querySelector('textarea:disabled')) {
+                genField.dataset.wolTaPending = 'true';
+                return;
+            }
             genField.dataset.wolTaProcessed = 'true';
+            genField.setAttribute('data-wol-ta-hidden', 'true');
 
             const pid = genField.getAttribute('data-pid') || genField.id
                      || ('ta_' + Math.random().toString(36).slice(2));
             const questionP = genField.previousElementSibling;
-
+            if (!questionP || questionP.classList.contains('gen-field')) return;
             styleQuestionAsBox(questionP);
-            // Accept any block-level predecessor, not just p.qu
-            if (!questionP || !questionP.matches('p, div, h1, h2, h3, h4, li')) return;
+            if (!questionP.matches('p, div, h1, h2, h3, h4, li')) return;
 
             // Make question paragraph the positioning parent for the toggle
             if (!questionP.classList.contains('wol-qu-wrap')) {
@@ -4199,10 +5455,17 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
 
         function processAll(root) {
             root.querySelectorAll('.gen-field[data-pid]').forEach(processGenField);
-            root.querySelectorAll('p.qu').forEach(q => { if (!q.dataset.greyBoxDone) styleQuestionAsBox(q); });
         }
 
         processAll(document.body);
+
+        // Retry any gen-fields whose textarea was already present but missed on first pass
+        document.querySelectorAll('.gen-field[data-wol-ta-pending]').forEach(gf => {
+            if (gf.querySelector('textarea:disabled')) {
+                delete gf.dataset.wolTaPending;
+                processGenField(gf);
+            }
+        });
 
         new MutationObserver(mutations => {
             for (const m of mutations) {
@@ -4212,6 +5475,13 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                     else processAll(node);
                 }
             }
+            // Retry any gen-fields that were seen before their textarea was ready
+            document.querySelectorAll('.gen-field[data-wol-ta-pending]').forEach(gf => {
+                if (gf.querySelector('textarea:disabled')) {
+                    delete gf.dataset.wolTaPending;
+                    processGenField(gf);
+                }
+            });
         }).observe(document.body, { childList: true, subtree: true });
 
         // Blur all open textareas before unload so browser doesn't
@@ -4410,10 +5680,11 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             document.body.classList.add('wol-study-mode');
             buildMenuHome();
             document.addEventListener('contextmenu', blockContextMenu, true);
-        // If playback was already enabled, activate study audio immediately
+        // If playback was already enabled, try to activate audio UI.
+        // enableStudyAudio() will no-op if the player isn't visible yet —
+        // the speedObserver will call it again once the player appears.
         if (getPlaybackEnabled()) {
             enableStudyAudio();
-            patchParLinksForAudio();
         }
             installBannerBlock();
             installSelectStartBlock();
@@ -4433,6 +5704,24 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     // InitDB then apply everything
     initDB().then(() => {
         restoreHighlights(document.body);
+
+        // Mutation observer for tooltips to restore highlights when they appear
+        new MutationObserver(mutations => {
+            for (const m of mutations) {
+                if (m.type === 'childList') {
+                    m.addedNodes.forEach(node => {
+                        if (node.nodeType === Node.ELEMENT_NODE) {
+                            if (node.matches('.tooltip') || node.matches('.tooltipContainer')) {
+                                setTimeout(() => restoreHighlights(node), 50);
+                            } else {
+                                const tooltips = node.querySelectorAll('.tooltip, .tooltipContainer');
+                                tooltips.forEach(t => setTimeout(() => restoreHighlights(t), 50));
+                            }
+                        }
+                    });
+                }
+            }
+        }).observe(document.body, { childList: true, subtree: true });
 
         // Reference symbol style element
         const refStyleEl = document.createElement('style');

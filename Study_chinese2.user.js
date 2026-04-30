@@ -1,12 +1,12 @@
 // ==UserScript==
 // @name         WOL Unified (Pinyin · Highlighter · Sync · Question Boxes)
 // @namespace    wol-unified
-// @version      3.3
+// @version      3.1
 // @description  Study/pinyin mode, 4-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
-// @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese2.user.js
-// @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese2.user.js
+// @updateURL    https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
+// @downloadURL  https://raw.githubusercontent.com/javalan/userscripts/main/Study_chinese.js
 // @grant        unsafeWindow
 // @grant        GM_xmlhttpRequest
 // @grant        GM.xmlHttpRequest
@@ -2211,12 +2211,27 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         return e.target.closest('a[id^="p"], .parNum, [class*="parNum"], p.qu > strong:first-child');
     }
 
-    // ── Non-iOS (Firefox / Android touch): long-press verse or par num → show audio player ──
+// ── Non-iOS (Firefox / Android touch): long-press verse or par num → show audio player ──
     if (!isIOS) {
         let _ffVerseLPTimer = null, _ffVerseLPFired = false;
         let _ffParLPTimer = null,   _ffParLPFired   = false;
         let _ffTouchMoved = false,  _ffTouchStartX  = 0, _ffTouchStartY = 0;
-
+ 
+        // Non-passive listener on verse links only — needed so we can call
+        // e.preventDefault() to stop Android from firing touchcancel (which
+        // kills the long-press timer when the OS takes over for text-selection).
+        document.addEventListener('touchstart', (e) => {
+            if (getMode() !== 'study') return;
+            if (!getPlaybackEnabled()) return;
+            if (e.target.closest('.wol-char-wrap, ruby, rb, rt')) return;
+            const verseLink = e.target.closest('a.vl.vx.vp, span.v a.vl');
+            if (!verseLink) return;
+            // Prevent Android from starting text-selection / context-menu
+            // during the long-press hold, which would fire touchcancel
+            e.preventDefault();
+        }, { capture: true, passive: false });
+ 
+        // Passive listener handles timing and par-link detection
         document.addEventListener('touchstart', (e) => {
             if (getMode() !== 'study') return;
             if (!getPlaybackEnabled()) return;
@@ -2226,7 +2241,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             _ffParLPFired   = false;
             _ffTouchStartX  = e.touches[0].clientX;
             _ffTouchStartY  = e.touches[0].clientY;
-
+ 
             const verseLink = e.target.closest('a.vl.vx.vp, span.v a.vl');
             if (verseLink) {
                 _ffVerseLPTimer = setTimeout(() => {
@@ -2262,7 +2277,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 }, 400);
             }
         }, { capture: true, passive: true });
-
+ 
         document.addEventListener('touchmove', (e) => {
             const dx = e.touches[0].clientX - _ffTouchStartX;
             const dy = e.touches[0].clientY - _ffTouchStartY;
@@ -2272,7 +2287,15 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 if (_ffParLPTimer)   { clearTimeout(_ffParLPTimer);   _ffParLPTimer   = null; }
             }
         }, { capture: true, passive: true });
-
+ 
+        // Cancel timers on touchcancel (Android fires this when OS takes over)
+        document.addEventListener('touchcancel', () => {
+            if (_ffVerseLPTimer) { clearTimeout(_ffVerseLPTimer); _ffVerseLPTimer = null; }
+            if (_ffParLPTimer)   { clearTimeout(_ffParLPTimer);   _ffParLPTimer   = null; }
+            _ffVerseLPFired = false;
+            _ffParLPFired   = false;
+        }, { capture: true, passive: true });
+ 
         document.addEventListener('touchend', (e) => {
             if (_ffVerseLPTimer) { clearTimeout(_ffVerseLPTimer); _ffVerseLPTimer = null; }
             if (_ffParLPTimer)   { clearTimeout(_ffParLPTimer);   _ffParLPTimer   = null; }
@@ -3627,21 +3650,25 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                     const articleContainer = container.querySelector('#article, .article, #content, .synopsis') || container;
                     const headings = Array.from(articleContainer.querySelectorAll('h1, h2, h3, h4'))
                         .filter(el => !el.closest('.documentNavigation, .noTooltips'));
-                    const bodies = Array.from(articleContainer.querySelectorAll('div[data-pid], p, div.v, div.sb, div.sc, li, div.du, div.dc'))
+                    // span.v is added for tooltip verse content (WOL tooltips use <span class="v">
+                    // not <div data-pid> or <p>, so without this tooltips never restore highlights)
+                    const bodies = Array.from(articleContainer.querySelectorAll('div[data-pid], p, div.v, span.v, div.sb, div.sc, li, div.du, div.dc'))
                         .filter(el => !el.closest('.documentNavigation, .noTooltips'));
+                    // For tooltips with no matching block elements, fall back to the container itself
                     const paragraphs = [...headings, ...bodies];
+                    const searchTargets = paragraphs.length > 0 ? paragraphs : [articleContainer];
                     highlights.forEach(highlight => {
                         if (container.querySelector(`span[data-highlight-id="${highlight.id}"]`)) return;
-                        // If we have a pid, try that paragraph first before falling back to all paragraphs
+                        // If we have a pid, try that paragraph first before falling back
                         if (highlight.pid) {
                             const pidEl = container.querySelector(`[data-pid="${highlight.pid}"]`);
                             if (pidEl && !pidEl.querySelector(`span[data-highlight-id="${highlight.id}"]`)) {
                                 if (highlightTextInElement(pidEl, highlight.text, highlight)) return;
                             }
                         }
-                        for (let i = 0; i < paragraphs.length; i++) {
-                            if (paragraphs[i].querySelector(`span[data-highlight-id="${highlight.id}"]`)) continue;
-                            if (highlightTextInElement(paragraphs[i], highlight.text, highlight)) break;
+                        for (let i = 0; i < searchTargets.length; i++) {
+                            if (searchTargets[i].querySelector(`span[data-highlight-id="${highlight.id}"]`)) continue;
+                            if (highlightTextInElement(searchTargets[i], highlight.text, highlight)) break;
                         }
                     });
                 }

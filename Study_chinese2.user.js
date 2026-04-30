@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WOL Unified (Pinyin · Highlighter · Sync · Question Boxes)
 // @namespace    wol-unified
-// @version      3.2
+// @version      3.3
 // @description  Study/pinyin mode, 4-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
@@ -11,11 +11,11 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM.xmlHttpRequest
 // @connect      raw.githubusercontent.com
+// @connect      script.google.com
 // ==/UserScript==
 
 // ─────────────────────────────────────────────────────────────
 // 0. PRE-HIDE RUBY (must run before everything else)
-// ─────────────────────────────────────────────────────────────
 (function preHideRuby() {
     if (localStorage.getItem('wol_app_mode') !== 'study') return;
     const s = document.createElement('style');
@@ -537,30 +537,44 @@ const T = {
         return FEEDBACK_FORM_BASE + '?hl=' + hl;
     }
 
+    function _sendToEndpoint(payload) {
+        const body = JSON.stringify(payload);
+        // GM_xmlhttpRequest bypasses CORS entirely — works on Firefox + Chrome extensions
+        if (typeof GM_xmlhttpRequest !== 'undefined') {
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: RATING_ENDPOINT,
+                headers: { 'Content-Type': 'text/plain' },
+                data: body,
+                onload: () => {},
+                onerror: () => {}
+            });
+        } else if (typeof GM !== 'undefined' && typeof GM.xmlHttpRequest !== 'undefined') {
+            GM.xmlHttpRequest({
+                method: 'POST',
+                url: RATING_ENDPOINT,
+                headers: { 'Content-Type': 'text/plain' },
+                data: body,
+                onload: () => {},
+                onerror: () => {}
+            });
+        } else {
+            // Fallback: fetch no-cors (iOS/Safari userscript runners)
+            fetch(RATING_ENDPOINT, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'text/plain' },
+                body
+            }).catch(() => {});
+        }
+    }
+
     function sendRating(rating) {
-        fetch(RATING_ENDPOINT, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'text/plain' },
-            body: JSON.stringify({
-                type: 'rating',
-                rating,
-                userAgent: navigator.userAgent
-            })
-        });
+        _sendToEndpoint({ type: 'rating', rating, userAgent: navigator.userAgent });
     }
 
     function sendFeedback(type, message) {
-        fetch(RATING_ENDPOINT, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'text/plain' },
-            body: JSON.stringify({
-                type,
-                message,
-                userAgent: navigator.userAgent
-            })
-        });
+        _sendToEndpoint({ type, message, userAgent: navigator.userAgent });
     }
 
     // ── Shared thank-you toast (reuses the app's existing toast style) ──
@@ -928,11 +942,12 @@ body.wol-highlighter-mode p.qu.jwac-textHighlight {
     const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-    // ── Hide publication nav bar and media controls on iOS in study mode ──
-    (function injectIOSStudyStyles() {
-        if (!isIOS) return;
+    // ── Hide publication nav bar and media controls in study mode ──
+    // Player wrapper hidden on ALL platforms until wol-player-visible is set.
+    // wol-player-visible is added by enableStudyAudio() when user triggers audio.
+    (function injectStudyStyles() {
         const s = document.createElement('style');
-        s.id = 'wol_ios_study_styles';
+        s.id = 'wol_study_styles';
         s.textContent = `
 body.wol-study-mode #publicationNavigation,
 body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
@@ -2055,25 +2070,22 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     }
 
     function enableStudyAudio() {
-        // wol-player-visible makes the player wrapper visible on iOS (CSS gate).
-        // Set it unconditionally whenever the toggle is on — this is what reveals
-        // the player. wol-audio-active (which unlocks the context menu and patches
-        // par/verse links) is only set once the player is actually rendered.
-        if (isIOS) document.body.classList.add('wol-player-visible');
+        // wol-player-visible reveals the player wrapper on ALL platforms.
+        // Same CSS gate that was iOS-only now applies to Firefox/desktop too.
+        document.body.classList.add('wol-player-visible');
         document.body.classList.add('wol-audio-active');
         const cm = document.getElementById('contextMenu');
         if (cm) cm.style.removeProperty('display');
-        // Patch links now if player already visible, otherwise the speedObserver
-        // will call patchVerseLinksForAudio/patchParLinksForAudio once it appears.
         patchVerseLinksForAudio();
         patchParLinksForAudio();
     }
     function disableStudyAudio() {
         document.body.classList.remove('wol-audio-active');
-        if (isIOS) document.body.classList.remove('wol-player-visible');
+        document.body.classList.remove('wol-player-visible');
         const cm = document.getElementById('contextMenu');
         if (cm) cm.style.setProperty('display', 'none', 'important');
     }
+
     // Auto-deactivate audio mode when the player wrapper is hidden by WOL
     // (e.g. navigating away from an article that had audio). This clears
     // wol-audio-active so the context menu suppression resumes correctly.
@@ -2093,7 +2105,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     });
 
     function patchVerseLinksForAudio() {
-        if (!isIOS || !getPlaybackEnabled() || getMode() !== 'study') return;
+        if (!getPlaybackEnabled() || getMode() !== 'study') return;
         document.querySelectorAll('a.vl.vx.vp, span.v a.vl').forEach(link => {
             if (link.dataset.wolHrefPatched) return;
             link.dataset.wolHrefPatched = 'true';
@@ -2106,7 +2118,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     }
 
     function patchParLinksForAudio() {
-        if (!isIOS || !getPlaybackEnabled() || getMode() !== 'study') return;
+        if (!getPlaybackEnabled() || getMode() !== 'study') return;
         document.querySelectorAll('span.parNum, [class*="parNum"], a[id^="p"], h1[data-pid], h2[data-pid], h3[data-pid], h4[data-pid], p.qu strong:first-child').forEach(el => {
             if (el.dataset.wolParPatched) return;
             el.dataset.wolParPatched = 'true';
@@ -2197,6 +2209,86 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             return heading;
         }
         return e.target.closest('a[id^="p"], .parNum, [class*="parNum"], p.qu > strong:first-child');
+    }
+
+    // ── Non-iOS (Firefox / Android touch): long-press verse or par num → show audio player ──
+    if (!isIOS) {
+        let _ffVerseLPTimer = null, _ffVerseLPFired = false;
+        let _ffParLPTimer = null,   _ffParLPFired   = false;
+        let _ffTouchMoved = false,  _ffTouchStartX  = 0, _ffTouchStartY = 0;
+
+        document.addEventListener('touchstart', (e) => {
+            if (getMode() !== 'study') return;
+            if (!getPlaybackEnabled()) return;
+            if (e.target.closest('.wol-char-wrap, ruby, rb, rt')) return;
+            _ffTouchMoved   = false;
+            _ffVerseLPFired = false;
+            _ffParLPFired   = false;
+            _ffTouchStartX  = e.touches[0].clientX;
+            _ffTouchStartY  = e.touches[0].clientY;
+
+            const verseLink = e.target.closest('a.vl.vx.vp, span.v a.vl');
+            if (verseLink) {
+                _ffVerseLPTimer = setTimeout(() => {
+                    if (_ffTouchMoved) return;
+                    _ffVerseLPFired = true;
+                    enableStudyAudio();
+                    const verseSpan = verseLink.closest('span.v');
+                    if (verseSpan) {
+                        const rect = verseSpan.getBoundingClientRect();
+                        verseSpan.dispatchEvent(new MouseEvent('click', {
+                            bubbles: true, cancelable: true,
+                            clientX: rect.left + rect.width / 2,
+                            clientY: rect.top + rect.height / 2,
+                            view: window
+                        }));
+                    }
+                }, 400);
+                return;
+            }
+            const parLink = _parLinkFromEvent(e);
+            if (parLink) {
+                _ffParLPTimer = setTimeout(() => {
+                    if (_ffTouchMoved) return;
+                    _ffParLPFired = true;
+                    enableStudyAudio();
+                    const rect = parLink.getBoundingClientRect();
+                    parLink.dispatchEvent(new MouseEvent('click', {
+                        bubbles: true, cancelable: true,
+                        clientX: rect.left + 5,
+                        clientY: rect.top + 5,
+                        view: window
+                    }));
+                }, 400);
+            }
+        }, { capture: true, passive: true });
+
+        document.addEventListener('touchmove', (e) => {
+            const dx = e.touches[0].clientX - _ffTouchStartX;
+            const dy = e.touches[0].clientY - _ffTouchStartY;
+            if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+                _ffTouchMoved = true;
+                if (_ffVerseLPTimer) { clearTimeout(_ffVerseLPTimer); _ffVerseLPTimer = null; }
+                if (_ffParLPTimer)   { clearTimeout(_ffParLPTimer);   _ffParLPTimer   = null; }
+            }
+        }, { capture: true, passive: true });
+
+        document.addEventListener('touchend', (e) => {
+            if (_ffVerseLPTimer) { clearTimeout(_ffVerseLPTimer); _ffVerseLPTimer = null; }
+            if (_ffParLPTimer)   { clearTimeout(_ffParLPTimer);   _ffParLPTimer   = null; }
+            if (_ffVerseLPFired && e.target.closest('a.vl.vx.vp, span.v a.vl')) {
+                _ffVerseLPFired = false;
+                e.preventDefault(); e.stopImmediatePropagation();
+                return;
+            }
+            if (_ffParLPFired && _parLinkFromEvent(e)) {
+                _ffParLPFired = false;
+                e.preventDefault(); e.stopImmediatePropagation();
+                return;
+            }
+            _ffVerseLPFired = false;
+            _ffParLPFired   = false;
+        }, { capture: true, passive: false });
     }
 
     if (isIOS) {
@@ -3291,29 +3383,54 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         return 'tooltip_' + simpleHash(tooltip.textContent.trim().substring(0, 500));
     }
 
-    // Two canonical keys per container — article ref + tooltip mirror.
-    // Tooltip saves to [ar, 'tooltip_ar'] so the shared article key always
-    // gets written. Main page saves to [ar] only — no overwrite risk.
+    // Key strategy:
+    //   Tooltip  → saves under ONE unique key: 'tooltip_<pathhash>_<texthash>'
+    //              Each tooltip gets its own key; same-chapter tooltips never collide.
+    //   Main page → saves under canonical article key only.
+    //   Restore on main page: reads main key + ALL tooltip_ keys (merged by text dedup).
+    function _tooltipKey(tooltip) {
+        // Use 'a[class*="pub-"]' — WOL scripture links have classes like
+        // 'pub-nwtsty', 'pub-w', etc. The old 'a.pub-' matched nothing.
+        const link = tooltip.querySelector('a.bibleCitation, a.publicationCitation, a[class*="pub-"]');
+        if (link) {
+            const href = link.getAttribute('href');
+            if (href) {
+                // Include the full href (path + hash fragment) so that tooltips
+                // for different verses in the same chapter get different keys.
+                // e.g. /b/.../66/5#v66-5-1 vs /b/.../66/5#v66-5-9 → different keys.
+                const resolved = new URL(href, window.location.href);
+                const fullKey = resolved.pathname + resolved.hash;
+                return 'tooltip_' + simpleHash(fullKey);
+            }
+        }
+        // Fallback: hash the tooltip header text only (more stable than full textContent
+        // which changes when study mode converts ruby elements).
+        const header = tooltip.querySelector('.tooltipHeader, .tooltipTitle, h1, h2');
+        const stable = header ? header.textContent.trim() : tooltip.textContent.trim().substring(0, 200);
+        return 'tooltip_' + simpleHash(stable);
+    }
+
     function getKeys(container) {
         const tooltip = container.closest('.tooltip, .tooltipContainer');
         if (tooltip) {
-            const link = tooltip.querySelector('a.bibleCitation, a.publicationCitation, a.pub-');
-            if (link) {
-                const href = link.getAttribute('href');
-                if (href) {
-                    const abs = new URL(href, window.location.href).pathname;
-                    const ar = extractArticleRef(abs) || extractScriptureRef(abs)
-                            || extractArticleRef(href) || extractScriptureRef(href);
-                    if (ar) return [ar, 'tooltip_' + ar];
-                    const rawKey = abs.split('#')[0];
-                    return [rawKey, 'tooltip_' + rawKey];
-                }
-            }
-            return ['tooltip_' + simpleHash(tooltip.textContent.trim().substring(0, 500))];
+            return [_tooltipKey(tooltip)];  // one unique key per tooltip, no shared writes
         }
         const path = window.location.pathname;
         const ar = extractArticleRef(path) || extractScriptureRef(path) || path;
-        return [ar];  // main article: one key only
+        return [ar];
+    }
+
+    // Returns all tooltip_ keys in DB. Used by restoreHighlights on main page
+    // so highlights made in tooltips also appear on the bible page.
+    function getRelatedTooltipKeys(db) {
+        return new Promise(resolve => {
+            try {
+                const tx = db.transaction(['highlights'], 'readonly');
+                const req = tx.objectStore('highlights').getAllKeys();
+                req.onsuccess = () => resolve((req.result || []).filter(k => typeof k === 'string' && k.startsWith('tooltip_')));
+                req.onerror = () => resolve([]);
+            } catch(e) { resolve([]); }
+        });
     }
 
     // ── Save / restore highlights ──
@@ -3382,20 +3499,23 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         if (!db) return;
         if (container.querySelector('span[data-highlight-id]')) return;
 
+        const isMainPage = !container.closest('.tooltip, .tooltipContainer');
         const keys = getKeys(container);
-        const transaction = db.transaction(['highlights'], 'readonly');
-        const store = transaction.objectStore('highlights');
-        const allHighlights = new Map();
-        let processed = 0;
 
-        keys.forEach(id => {
-            const request = store.get(id);
-            request.onsuccess = () => {
-                processed++;
-                const result = request.result;
-                if (result && result.highlights)
-                    result.highlights.forEach(h => { if (!allHighlights.has(h.text)) allHighlights.set(h.text, h); });
-                if (processed === keys.length) {
+        const loadAndRestore = (allKeys) => {
+            if (allKeys.length === 0) return;
+            const allHighlights = new Map();
+            let processed = 0;
+            const transaction = db.transaction(['highlights'], 'readonly');
+            const store = transaction.objectStore('highlights');
+            allKeys.forEach(id => {
+                const request = store.get(id);
+                request.onsuccess = () => {
+                    processed++;
+                    const result = request.result;
+                    if (result && result.highlights)
+                        result.highlights.forEach(h => { if (!allHighlights.has(h.text)) allHighlights.set(h.text, h); });
+                    if (processed === allKeys.length) {
                     const highlights = Array.from(allHighlights.values());
                     if (highlights.length === 0) return;
                     function pinyinFilter(node) {
@@ -3525,8 +3645,17 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                         }
                     });
                 }
-            };
-        });
+                };
+            });
+        };
+
+        if (isMainPage) {
+            getRelatedTooltipKeys(db).then(tooltipKeys => {
+                loadAndRestore([...keys, ...tooltipKeys]);
+            });
+        } else {
+            loadAndRestore(keys);
+        }
     }
 
     // ── Remove highlight listener ──
@@ -3835,6 +3964,18 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             }
 
             if (liveTargets.length) {
+                // Capture the correct container NOW from the range, before the
+                // setTimeout. document.querySelector after the timeout can find
+                // main-page copies of the same text (restored via getRelatedTooltipKeys)
+                // and incorrectly route the save to document.body.
+                const _saveContainer = (() => {
+                    try {
+                        const anc = range.commonAncestorContainer;
+                        const el = anc.nodeType === Node.ELEMENT_NODE ? anc : anc.parentElement;
+                        return el.closest('.tooltip, .tooltipContainer') || document.body;
+                    } catch(e) { return document.body; }
+                })();
+ 
                 function makeHlSpan() {
                     const span = document.createElement('span');
                     span.style.backgroundColor = color;
@@ -3850,13 +3991,10 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                         span.appendChild(ruby);
                     });
                     if (!skipSave) {
-                        const anySpan = document.querySelector(`span[data-highlight-id="${highlightID}"]`);
-                        const container = (anySpan && anySpan.closest('.tooltip, .tooltipContainer')) || document.body;
-                        debouncedSave(container);
+                        debouncedSave(_saveContainer);
                     }
                 }, 0);
             }
-
             return;
         } else {
             const startEl2 = (range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer);
@@ -3927,9 +4065,15 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 splitRange.deleteContents(); splitRange.insertNode(frag);
             }
             if (!skipSave) {
-                const anySpan = document.querySelector(`span[data-highlight-id="${highlightID}"]`);
-                const container = (anySpan && anySpan.closest('.tooltip, .tooltipContainer')) || document.body;
-                debouncedSave(container);
+                // Use range-derived container (same fix as ruby branch above)
+                const _saveContainer2 = (() => {
+                    try {
+                        const anc = range.startContainer;
+                        const el = anc.nodeType === Node.ELEMENT_NODE ? anc : anc.parentElement;
+                        return el.closest('.tooltip, .tooltipContainer') || document.body;
+                    } catch(e) { return document.body; }
+                })();
+                debouncedSave(_saveContainer2);
             }
         }
     }
@@ -4596,136 +4740,19 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                                 applyModeToTooltip(content);
                             }, 400);
                         }
-                        // Restore highlights into the tooltip from ALL keys that
-                        // could contain its highlights: its own tooltip_ key AND
-                        // the matching main-article key. We wait for the tooltip
-                        // content to be fully rendered before attempting restore.
-                        if (!db) return;
-                        const keys = getKeys(t);
-                        const transaction = db.transaction(['highlights'], 'readonly');
-                        const store = transaction.objectStore('highlights');
-                        const allHighlights = new Map();
-                        let processed = 0;
-                        keys.forEach(id => {
-                            const request = store.get(id);
-                            request.onsuccess = () => {
-                                processed++;
-                                const result = request.result;
-                                if (result && result.highlights)
-                                    result.highlights.forEach(h => {
-                                        if (!allHighlights.has(h.text)) allHighlights.set(h.text, h);
-                                    });
-                                if (processed < keys.length) return;
-                                // All keys loaded — attempt restore once content is ready
-                                const attempt = (tries) => {
-                                    const content = t.querySelector('.tooltipText, .tooltipContent, .synopsis');
-                                    if (!content && tries > 0) {
-                                        setTimeout(() => attempt(tries - 1), 80);
-                                        return;
-                                    }
-                                    const highlights = Array.from(allHighlights.values());
-                                    if (!highlights.length) return;
-                                    function pinyinFilter(node) {
-                                        let p = node.parentElement;
-                                        while (p) {
-                                            if (p.tagName === 'RT') return NodeFilter.FILTER_REJECT;
-                                            if (p.classList && p.classList.contains('wol-char-pinyin')) return NodeFilter.FILTER_REJECT;
-                                            if (p.tagName === 'RUBY') break;
-                                            p = p.parentElement;
-                                        }
-                                        return NodeFilter.FILTER_ACCEPT;
-                                    }
-                                    function getTextContent(node) {
-                                        let text = '';
-                                        const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, { acceptNode: pinyinFilter });
-                                        while (walker.nextNode()) text += walker.currentNode.textContent;
-                                        return text;
-                                    }
-                                    function highlightTextInElement(element, searchText, highlight) {
-                                        const fullText = getTextContent(element);
-                                        const index = fullText.indexOf(searchText);
-                                        if (index === -1) return false;
-
-                                        // ── Ruby-page restore: match rubies by position-anchored text ──
-                                        const allRubies = Array.from(element.querySelectorAll('ruby'));
-                                        if (allRubies.length > 0) {
-                                            const cjkRe = /[^\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3000-\u303f\uff00-\uffef]/g;
-                                            const searchCJK = searchText.replace(cjkRe, '');
-                                            if (searchCJK.length > 0) {
-                                                let cursor = 0;
-                                                const rubyStarts = [];
-                                                for (let i = 0; i < allRubies.length; i++) {
-                                                    const rbText = allRubies[i].querySelector('rb')?.textContent || '';
-                                                    const pos2 = fullText.indexOf(rbText, cursor);
-                                                    rubyStarts.push(pos2 === -1 ? cursor : pos2);
-                                                    if (pos2 !== -1) cursor = pos2 + rbText.length;
-                                                }
-                                                const searchEnd = index + searchText.length;
-                                                const targets = [];
-                                                const highlightID = 'hl_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-                                                for (let i = 0; i < allRubies.length; i++) {
-                                                    const rStart = rubyStarts[i];
-                                                    const rbText = allRubies[i].querySelector('rb')?.textContent || '';
-                                                    const rEnd = rStart + rbText.length;
-                                                    if (rEnd > index && rStart < searchEnd) {
-                                                        if (!allRubies[i].closest('span[data-highlight-id]'))
-                                                            targets.push(allRubies[i]);
-                                                    }
-                                                }
-                                                if (targets.length) {
-                                                    targets.forEach(ruby => {
-                                                        const span = document.createElement('span');
-                                                        span.style.backgroundColor = highlight.color;
-                                                        span.style.color = 'black';
-                                                        span.setAttribute('data-highlight-id', highlightID);
-                                                        addRemoveListener(span);
-                                                        ruby.parentNode.replaceChild(span, ruby);
-                                                        span.appendChild(ruby);
-                                                    });
-                                                    return true;
-                                                }
-                                            }
-                                        }
-
-                                        // ── Plain text restore (compact mode / no rubies) ──
-                                        const range = document.createRange();
-                                        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, pfo);
-                                        let currentLength = 0, startNode = null, startOffset = 0, endNode = null, endOffset = 0;
-                                        while (walker.nextNode()) {
-                                            const node = walker.currentNode, nodeLength = node.textContent.length;
-                                            if (startNode === null && currentLength + nodeLength > index) { startNode = node; startOffset = index - currentLength; }
-                                            if (currentLength + nodeLength >= index + searchText.length) { endNode = node; endOffset = (index + searchText.length) - currentLength; break; }
-                                            currentLength += nodeLength;
-                                        }
-                                        if (startNode && endNode) {
-                                            try { range.setStart(startNode, startOffset); range.setEnd(endNode, endOffset); smartHighlight(range, highlight.color, true); return true; }
-                                            catch (e) { return false; }
-                                        }
-                                        return false;
-                                    }
-                                    const searchRoot = content || t;
-                                    const headings = Array.from(searchRoot.querySelectorAll('h1, h2, h3, h4'))
-                                        .filter(el => !el.closest('.documentNavigation, .noTooltips'));
-                                    const bodies = Array.from(searchRoot.querySelectorAll('div[data-pid], p, div.v, div.sb, div.sc, li, div.du, div.dc'))
-                                        .filter(el => !el.closest('.documentNavigation, .noTooltips'));
-                                    const paragraphs = [...headings, ...bodies];
-                                    highlights.forEach(highlight => {
-                                        if (t.querySelector(`span[data-highlight-id="${highlight.id}"]`)) return;
-                                        if (highlight.pid) {
-                                            const pidEl = searchRoot.querySelector(`[data-pid="${highlight.pid}"]`);
-                                            if (pidEl && !pidEl.querySelector(`span[data-highlight-id="${highlight.id}"]`)) {
-                                                if (highlightTextInElement(pidEl, highlight.text, highlight)) return;
-                                            }
-                                        }
-                                        for (let i = 0; i < paragraphs.length; i++) {
-                                            if (paragraphs[i].querySelector(`span[data-highlight-id="${highlight.id}"]`)) continue;
-                                            if (highlightTextInElement(paragraphs[i], highlight.text, highlight)) break;
-                                        }
-                                    });
-                                };
-                                attempt(8);
-                            };
-                        });
+                        // Restore highlights — wait for content to render AND for
+                        // applyModeToTooltip to complete (in study mode it converts
+                        // ruby→charwrap at +400ms, so we wait until after that).
+                        const attemptRestore = (tries) => {
+                            if (t.querySelector('span[data-highlight-id]')) return;
+                            const content = t.querySelector('.tooltipText, .tooltipContent, .synopsis');
+                            if (!content && tries > 0) { setTimeout(() => attemptRestore(tries - 1), 80); return; }
+                            restoreHighlights(t);
+                        };
+                        // Study mode: delay until after applyModeToTooltip (+400ms).
+                        // Regular mode: shorter delay is fine.
+                        const restoreDelay = (getMode() === 'study') ? 520 : 120;
+                        setTimeout(() => attemptRestore(10), restoreDelay);
                     }
                     if (node.classList && (node.classList.contains('tooltip') || node.classList.contains('tooltipContainer'))) processTooltip(node);
                     node.querySelectorAll && node.querySelectorAll('.tooltip, .tooltipContainer').forEach(processTooltip);
@@ -5713,24 +5740,6 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     // InitDB then apply everything
     initDB().then(() => {
         restoreHighlights(document.body);
-
-        // Mutation observer for tooltips to restore highlights when they appear
-        new MutationObserver(mutations => {
-            for (const m of mutations) {
-                if (m.type === 'childList') {
-                    m.addedNodes.forEach(node => {
-                        if (node.nodeType === Node.ELEMENT_NODE) {
-                            if (node.matches('.tooltip') || node.matches('.tooltipContainer')) {
-                                setTimeout(() => restoreHighlights(node), 50);
-                            } else {
-                                const tooltips = node.querySelectorAll('.tooltip, .tooltipContainer');
-                                tooltips.forEach(t => setTimeout(() => restoreHighlights(t), 50));
-                            }
-                        }
-                    });
-                }
-            }
-        }).observe(document.body, { childList: true, subtree: true });
 
         // Reference symbol style element
         const refStyleEl = document.createElement('style');

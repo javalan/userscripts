@@ -437,6 +437,9 @@
     // Debounced save — prevents duplicate saves when DOM mutations fire rapidly
     const _saveTimers = new WeakMap();
     function debouncedSave(container) {
+        // For tooltips, save immediately — they may be closed/removed within 400ms
+        const isTooltip = !!(container && container.closest && container.closest('.tooltip, .tooltipContainer'));
+        if (isTooltip) { saveHighlights(container); return; }
         if (_saveTimers.has(container)) clearTimeout(_saveTimers.get(container));
         _saveTimers.set(container, setTimeout(() => {
             _saveTimers.delete(container);
@@ -2219,19 +2222,18 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         // Flag: true once the hold threshold has passed (safe to preventDefault)
         let _ffHoldActive   = false;
  
-        // Non-passive: needed to call preventDefault AFTER the hold threshold,
-        // suppressing Android's context-menu/selection which fires touchcancel.
-        // We do NOT preventDefault immediately (that breaks single tap);
-        // instead _ffHoldActive is set by the timer after 200ms.
         document.addEventListener('touchstart', (e) => {
             if (getMode() !== 'study') return;
             if (!getPlaybackEnabled()) return;
             if (e.target.closest('.wol-char-wrap, ruby, rb, rt')) return;
-            // Only intercept verse and par links
-            const onVerseOrPar = !!(e.target.closest('a.vl.vx.vp, span.v a.vl') || _parLinkFromEvent(e));
-            if (!onVerseOrPar) return;
-            // Once _ffHoldActive is set (after 200ms), block browser default
-            // to prevent Android from stealing the touch via touchcancel
+            const isVerseLink = !!e.target.closest('a.vl.vx.vp, span.v a.vl');
+            const isParNum = !!_parLinkFromEvent(e);
+            if (!isVerseLink && !isParNum) return;
+            // For parNum elements, prevent browser context menu immediately —
+            // we know we want to intercept this touch (Android Firefox fires
+            // touchcancel ~500ms in if we don't preventDefault first).
+            // For verse links, only prevent once the hold threshold has passed.
+            if (isParNum) { e.preventDefault(); return; }
             if (_ffHoldActive) e.preventDefault();
         }, { capture: true, passive: false });
  
@@ -4428,6 +4430,8 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         if (!tooltipHeader) return;
         tooltip.querySelectorAll('a.bibleCitation, a.publicationCitation, a[class*="pub-"]').forEach(link => {
             link.addEventListener('click', () => {
+                // Save highlights before removing tooltip DOM
+                if (tooltip.querySelector('span[data-highlight-id]')) saveHighlights(tooltip);
                 tooltip.querySelectorAll('span[data-highlight-id]').forEach(span => unwrapSpan(span));
                 const container = tooltip.closest('.tooltipContainer, .tooltip') || tooltip;
                 container.style.display = 'none'; container.remove();

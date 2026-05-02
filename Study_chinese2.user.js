@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WOL Unified (Pinyin · Highlighter · Sync · Question Boxes)
 // @namespace    wol-unified
-// @version      3.3
+// @version      3.1
 // @description  Study/pinyin mode, 4-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
@@ -2211,27 +2211,30 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         return e.target.closest('a[id^="p"], .parNum, [class*="parNum"], p.qu > strong:first-child');
     }
 
-// ── Non-iOS (Firefox / Android touch): long-press verse or par num → show audio player ──
+    // ── Non-iOS (Firefox / Android touch): long-press verse or par → show audio player ──
     if (!isIOS) {
         let _ffVerseLPTimer = null, _ffVerseLPFired = false;
-        let _ffParLPTimer = null,   _ffParLPFired   = false;
-        let _ffTouchMoved = false,  _ffTouchStartX  = 0, _ffTouchStartY = 0;
+        let _ffParLPTimer   = null, _ffParLPFired   = false;
+        let _ffTouchMoved   = false, _ffTouchStartX = 0, _ffTouchStartY = 0;
+        // Flag: true once the hold threshold has passed (safe to preventDefault)
+        let _ffHoldActive   = false;
  
-        // Non-passive listener on verse links only — needed so we can call
-        // e.preventDefault() to stop Android from firing touchcancel (which
-        // kills the long-press timer when the OS takes over for text-selection).
+        // Non-passive: needed to call preventDefault AFTER the hold threshold,
+        // suppressing Android's context-menu/selection which fires touchcancel.
+        // We do NOT preventDefault immediately (that breaks single tap);
+        // instead _ffHoldActive is set by the timer after 200ms.
         document.addEventListener('touchstart', (e) => {
             if (getMode() !== 'study') return;
             if (!getPlaybackEnabled()) return;
             if (e.target.closest('.wol-char-wrap, ruby, rb, rt')) return;
-            const verseLink = e.target.closest('a.vl.vx.vp, span.v a.vl');
-            if (!verseLink) return;
-            // Prevent Android from starting text-selection / context-menu
-            // during the long-press hold, which would fire touchcancel
-            e.preventDefault();
+            // Only intercept verse and par links
+            const onVerseOrPar = !!(e.target.closest('a.vl.vx.vp, span.v a.vl') || _parLinkFromEvent(e));
+            if (!onVerseOrPar) return;
+            // Once _ffHoldActive is set (after 200ms), block browser default
+            // to prevent Android from stealing the touch via touchcancel
+            if (_ffHoldActive) e.preventDefault();
         }, { capture: true, passive: false });
  
-        // Passive listener handles timing and par-link detection
         document.addEventListener('touchstart', (e) => {
             if (getMode() !== 'study') return;
             if (!getPlaybackEnabled()) return;
@@ -2239,12 +2242,19 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             _ffTouchMoved   = false;
             _ffVerseLPFired = false;
             _ffParLPFired   = false;
+            _ffHoldActive   = false;
             _ffTouchStartX  = e.touches[0].clientX;
             _ffTouchStartY  = e.touches[0].clientY;
  
             const verseLink = e.target.closest('a.vl.vx.vp, span.v a.vl');
             if (verseLink) {
+                // After 200ms set hold active so next touchstart can preventDefault
                 _ffVerseLPTimer = setTimeout(() => {
+                    if (_ffTouchMoved) return;
+                    _ffHoldActive = true;
+                }, 200);
+                // After 450ms fire audio
+                const fireTimer = setTimeout(() => {
                     if (_ffTouchMoved) return;
                     _ffVerseLPFired = true;
                     enableStudyAudio();
@@ -2258,11 +2268,14 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                             view: window
                         }));
                     }
-                }, 400);
+                }, 450);
+                // Store both timers; cancel both on move/end
+                _ffVerseLPTimer = fireTimer;
                 return;
             }
             const parLink = _parLinkFromEvent(e);
             if (parLink) {
+                setTimeout(() => { if (!_ffTouchMoved) _ffHoldActive = true; }, 150);
                 _ffParLPTimer = setTimeout(() => {
                     if (_ffTouchMoved) return;
                     _ffParLPFired = true;
@@ -2274,7 +2287,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                         clientY: rect.top + 5,
                         view: window
                     }));
-                }, 400);
+                }, 450);
             }
         }, { capture: true, passive: true });
  
@@ -2283,13 +2296,14 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             const dy = e.touches[0].clientY - _ffTouchStartY;
             if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
                 _ffTouchMoved = true;
+                _ffHoldActive = false;
                 if (_ffVerseLPTimer) { clearTimeout(_ffVerseLPTimer); _ffVerseLPTimer = null; }
                 if (_ffParLPTimer)   { clearTimeout(_ffParLPTimer);   _ffParLPTimer   = null; }
             }
         }, { capture: true, passive: true });
  
-        // Cancel timers on touchcancel (Android fires this when OS takes over)
         document.addEventListener('touchcancel', () => {
+            _ffHoldActive = false;
             if (_ffVerseLPTimer) { clearTimeout(_ffVerseLPTimer); _ffVerseLPTimer = null; }
             if (_ffParLPTimer)   { clearTimeout(_ffParLPTimer);   _ffParLPTimer   = null; }
             _ffVerseLPFired = false;
@@ -2297,6 +2311,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         }, { capture: true, passive: true });
  
         document.addEventListener('touchend', (e) => {
+            _ffHoldActive = false;
             if (_ffVerseLPTimer) { clearTimeout(_ffVerseLPTimer); _ffVerseLPTimer = null; }
             if (_ffParLPTimer)   { clearTimeout(_ffParLPTimer);   _ffParLPTimer   = null; }
             if (_ffVerseLPFired && e.target.closest('a.vl.vx.vp, span.v a.vl')) {
@@ -2313,6 +2328,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             _ffParLPFired   = false;
         }, { capture: true, passive: false });
     }
+
 
     if (isIOS) {
         // ── Prevent question box collapse on touch ──
@@ -4767,19 +4783,23 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                                 applyModeToTooltip(content);
                             }, 400);
                         }
-                        // Restore highlights — wait for content to render AND for
-                        // applyModeToTooltip to complete (in study mode it converts
-                        // ruby→charwrap at +400ms, so we wait until after that).
+                        // Restore highlights once tooltip content is fully loaded.
+                        // WOL loads verse content async — we must wait for ruby or
+                        // span.v elements to appear, not just the container div.
+                        // In study mode also wait for applyModeToTooltip (+400ms).
                         const attemptRestore = (tries) => {
                             if (t.querySelector('span[data-highlight-id]')) return;
-                            const content = t.querySelector('.tooltipText, .tooltipContent, .synopsis');
-                            if (!content && tries > 0) { setTimeout(() => attemptRestore(tries - 1), 80); return; }
+                            // Check for actual verse content, not just the wrapper div
+                            const hasContent = t.querySelector('ruby, span.v, .wol-char-wrap');
+                            if (!hasContent) {
+                                if (tries > 0) setTimeout(() => attemptRestore(tries - 1), 100);
+                                return;
+                            }
                             restoreHighlights(t);
                         };
-                        // Study mode: delay until after applyModeToTooltip (+400ms).
-                        // Regular mode: shorter delay is fine.
-                        const restoreDelay = (getMode() === 'study') ? 520 : 120;
-                        setTimeout(() => attemptRestore(10), restoreDelay);
+                        // Study mode: wait for applyModeToTooltip at +400ms too
+                        const restoreDelay = (getMode() === 'study') ? 520 : 150;
+                        setTimeout(() => attemptRestore(20), restoreDelay);
                     }
                     if (node.classList && (node.classList.contains('tooltip') || node.classList.contains('tooltipContainer'))) processTooltip(node);
                     node.querySelectorAll && node.querySelectorAll('.tooltip, .tooltipContainer').forEach(processTooltip);

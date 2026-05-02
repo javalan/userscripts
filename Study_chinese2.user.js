@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WOL Unified (Pinyin · Highlighter · Sync · Question Boxes)
 // @namespace    wol-unified
-// @version      3.1
+// @version      3.3
 // @description  Study/pinyin mode, 4-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
@@ -435,10 +435,12 @@
     let db = null;
 
     // Debounced save — prevents duplicate saves when DOM mutations fire rapidly
+    // For tooltips: save immediately (they may be closed/removed within 400ms,
+    // which would cause the debounced save to find no spans and DELETE the entry)
     const _saveTimers = new WeakMap();
     function debouncedSave(container) {
-        // For tooltips, save immediately — they may be closed/removed within 400ms
-        const isTooltip = !!(container && container.closest && container.closest('.tooltip, .tooltipContainer'));
+        const isTooltip = !!(container && container !== document.body &&
+            container.closest && container.closest('.tooltip, .tooltipContainer'));
         if (isTooltip) { saveHighlights(container); return; }
         if (_saveTimers.has(container)) clearTimeout(_saveTimers.get(container));
         _saveTimers.set(container, setTimeout(() => {
@@ -2229,10 +2231,9 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             const isVerseLink = !!e.target.closest('a.vl.vx.vp, span.v a.vl');
             const isParNum = !!_parLinkFromEvent(e);
             if (!isVerseLink && !isParNum) return;
-            // For parNum elements, prevent browser context menu immediately —
-            // we know we want to intercept this touch (Android Firefox fires
-            // touchcancel ~500ms in if we don't preventDefault first).
-            // For verse links, only prevent once the hold threshold has passed.
+            // For parNum: prevent immediately so Android's context menu / touchcancel
+            // cannot fire and cancel the 450ms hold timer.
+            // For verse links: only prevent once hold threshold has passed.
             if (isParNum) { e.preventDefault(); return; }
             if (_ffHoldActive) e.preventDefault();
         }, { capture: true, passive: false });
@@ -3454,7 +3455,23 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     function getKeys(container) {
         const tooltip = container.closest('.tooltip, .tooltipContainer');
         if (tooltip) {
-            return [_tooltipKey(tooltip)];  // one unique key per tooltip, no shared writes
+            const link = tooltip.querySelector('a.bibleCitation, a.publicationCitation, a[class*="pub-"]');
+            if (link) {
+                const href = link.getAttribute('href');
+                if (href) {
+                    // Use path+hash for a verse-unique key (fixes same-chapter collisions)
+                    const resolved = new URL(href, window.location.href);
+                    const fullKey = resolved.pathname + resolved.hash;
+                    const verseKey = 'tooltip_' + simpleHash(fullKey);
+                    // Also save under article ref so highlights survive tooltip close
+                    const ar = extractArticleRef(resolved.pathname) || extractScriptureRef(resolved.pathname);
+                    if (ar) return [ar, verseKey];
+                    return [verseKey];
+                }
+            }
+            const header = tooltip.querySelector('.tooltipHeader, .tooltipTitle, h1, h2');
+            const stable = header ? header.textContent.trim() : tooltip.textContent.trim().substring(0, 200);
+            return ['tooltip_' + simpleHash(stable)];
         }
         const path = window.location.pathname;
         const ar = extractArticleRef(path) || extractScriptureRef(path) || path;
@@ -4430,7 +4447,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         if (!tooltipHeader) return;
         tooltip.querySelectorAll('a.bibleCitation, a.publicationCitation, a[class*="pub-"]').forEach(link => {
             link.addEventListener('click', () => {
-                // Save highlights before removing tooltip DOM
+                // Save highlights synchronously before unwrapping and removing DOM
                 if (tooltip.querySelector('span[data-highlight-id]')) saveHighlights(tooltip);
                 tooltip.querySelectorAll('span[data-highlight-id]').forEach(span => unwrapSpan(span));
                 const container = tooltip.closest('.tooltipContainer, .tooltip') || tooltip;

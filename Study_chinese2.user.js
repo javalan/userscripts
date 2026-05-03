@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WOL Unified (Pinyin · Highlighter · Sync · Question Boxes)
 // @namespace    wol-unified
-// @version      3.3
+// @version      3.1
 // @description  Study/pinyin mode, 4-colour highlighter, ENG/KOR/JPN/SPA↔CHS sync, reference symbol persistence, grey question boxes — merged into one script
 // @match        https://wol.jw.org/*
 // @run-at       document-end
@@ -2231,11 +2231,9 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             const isVerseLink = !!e.target.closest('a.vl.vx.vp, span.v a.vl');
             const isParNum = !!_parLinkFromEvent(e);
             if (!isVerseLink && !isParNum) return;
-            // For parNum: prevent immediately so Android's context menu / touchcancel
-            // cannot fire and cancel the 450ms hold timer.
-            // For verse links: only prevent once hold threshold has passed.
-            if (isParNum) { e.preventDefault(); return; }
-            if (_ffHoldActive) e.preventDefault();
+            // Prevent immediately for BOTH parNum and verse links so Android's
+            // context menu / touchcancel cannot fire and cancel the hold timer.
+            e.preventDefault();
         }, { capture: true, passive: false });
  
         document.addEventListener('touchstart', (e) => {
@@ -3453,17 +3451,21 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     }
 
     function getKeys(container) {
-        const tooltip = container.closest('.tooltip, .tooltipContainer');
+        // container may be a detached node (tooltip already removed from DOM)
+        // so we cache the key at call time, not walk the live DOM
+        const tooltip = container.closest
+            ? (container.classList && (container.classList.contains('tooltip') || container.classList.contains('tooltipContainer'))
+                ? container
+                : container.closest('.tooltip, .tooltipContainer'))
+            : null;
         if (tooltip) {
             const link = tooltip.querySelector('a.bibleCitation, a.publicationCitation, a[class*="pub-"]');
             if (link) {
                 const href = link.getAttribute('href');
                 if (href) {
-                    // Use path+hash for a verse-unique key (fixes same-chapter collisions)
                     const resolved = new URL(href, window.location.href);
                     const fullKey = resolved.pathname + resolved.hash;
                     const verseKey = 'tooltip_' + simpleHash(fullKey);
-                    // Also save under article ref so highlights survive tooltip close
                     const ar = extractArticleRef(resolved.pathname) || extractScriptureRef(resolved.pathname);
                     if (ar) return [ar, verseKey];
                     return [verseKey];
@@ -3600,10 +3602,9 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
 
                         // ── Ruby-page restore: match rubies by position-anchored CJK text ──
                         const allRubies = Array.from(element.querySelectorAll('ruby'));
-                        if (allRubies.length > 0) {
-                            const cjkRe = /[^\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3000-\u303f\uff00-\uffef]/g;
-                            const searchCJK = searchText.replace(cjkRe, '');
-                            if (searchCJK.length > 0) {
+                        const cjkRe = /[^\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3000-\u303f\uff00-\uffef]/g;
+                        const searchCJK = searchText.replace(cjkRe, '');
+                        if (allRubies.length > 0 && searchCJK.length > 0) {
                                 // Walk all rubies, track both their fullText position and
                                 // their CJK index, so we find the match anchored to the
                                 // correct position in the paragraph — not just first CJK hit.
@@ -3664,7 +3665,6 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                                     return true;
                                 }
                             }
-                        }
 
                         // ── Plain text restore (compact mode / no rubies) ──
                         const range = document.createRange();
@@ -3836,39 +3836,16 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         }
     }
 
-    function smartHighlight(range, color, skipSave, isRestore) {
-        if (!isRestore) {
-            const scopeRoot = (() => {
-                try {
-                    const anc = range.commonAncestorContainer;
-                    const el = anc.nodeType === Node.ELEMENT_NODE ? anc : anc.parentElement;
-                    return el.closest('.tooltip, .tooltipContainer, #article, .article, .mainContent') || document.body;
-                } catch(e) { return document.body; }
-            })();
-            scopeRoot.querySelectorAll('span[data-highlight-id]').forEach(span => {
-                if (!span.isConnected) return;
-                try {
-                    const sr = document.createRange();
-                    sr.selectNode(span);
-                    const endsBeforeStart = sr.compareBoundaryPoints(Range.END_TO_START, range) >= 0;
-                    const startsAfterEnd  = sr.compareBoundaryPoints(Range.START_TO_END, range) <= 0;
-                    if (!endsBeforeStart && !startsAfterEnd) unwrapSpan(span);
-                } catch(e) {}
-            });
+    function smartHighlight(range, color, skipSave) {
+        if (range.startContainer.nodeType === Node.TEXT_NODE && range.startOffset > 0) {
+            const newNode = range.startContainer.splitText(range.startOffset);
+            range.setStart(newNode, 0);
         }
-        const originalRange = range.cloneRange();
-        const splitRange = range.cloneRange();
-        if (!isRestore) {
-            if (splitRange.startContainer.nodeType === Node.TEXT_NODE && splitRange.startOffset > 0) {
-                const newNode = splitRange.startContainer.splitText(splitRange.startOffset);
-                splitRange.setStart(newNode, 0);
-            }
-            if (splitRange.endContainer.nodeType === Node.TEXT_NODE && splitRange.endOffset < splitRange.endContainer.textContent.length) {
-                splitRange.endContainer.splitText(splitRange.endOffset);
-            }
-            snapRangeToRubyBoundaries(splitRange);
+        if (range.endContainer.nodeType === Node.TEXT_NODE && range.endOffset < range.endContainer.textContent.length) {
+            range.endContainer.splitText(range.endOffset);
         }
-        const frag = splitRange.cloneContents();
+        snapRangeToRubyBoundaries(range);
+        const frag = range.cloneContents();
         const rubyElems = frag.querySelectorAll('ruby');
         const highlightID = 'hl_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
@@ -3901,11 +3878,6 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             if (!parent.classList || !parent.classList.contains('b')) return false;
             return /^[\+\*\#]+$/.test(node.textContent.trim());
         }
-        function isPunctuationOnly(node) {
-            if (node.nodeType !== Node.TEXT_NODE) return false;
-            const text = (node.textContent || '').trim();
-            return /^[\s\p{P}]*$/u.test(text);
-        }
         function wrapTextNode(textNode) {
             let p = textNode.parentElement;
             while (p) { if (p.tagName === 'RT') return; if (p.tagName === 'RUBY') break; p = p.parentElement; }
@@ -3917,152 +3889,67 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             span.appendChild(textNode);
         }
 
+        // Capture save container from range NOW before any async work
+        const _saveContainer = (() => {
+            try {
+                const anc = range.startContainer;
+                const el = anc.nodeType === Node.ELEMENT_NODE ? anc : anc.parentElement;
+                return el.closest('.tooltip, .tooltipContainer') || document.body;
+            } catch(e) { return document.body; }
+        })();
+
         if (rubyElems.length) {
-            const liveTargets = [];
-
-            // Scope to tooltip if inside one, otherwise the full article
-            const rangeAnchor = range.startContainer.nodeType === Node.TEXT_NODE
-                ? range.startContainer.parentElement : range.startContainer;
-            const scopeRoot =
-                (rangeAnchor && rangeAnchor.closest('.tooltip, .tooltipContainer')) ||
-                document.querySelector('#article, .article, .mainContent') ||
-                document.body;
-            const allRubies = Array.from(scopeRoot.querySelectorAll('ruby'));
-            if (!allRubies.length) return;
-
-            // ── Primary: CJK text match — works on iOS and desktop, most precise ──
-            const rawSel = window.__savedHighlightText || window.getSelection()?.toString() || '';
-            const selCJK = rawSel.replace(/[^\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/g, '');
-
-            if (!isRestore && selCJK.length > 0) {
-                const rubyCJK = allRubies.map(rb =>
-                    (rb.querySelector('rb')?.textContent || rb.textContent || '')
-                        .replace(/[^\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/g, '')
-                );
-
-                // Find which rubies fall inside the actual selection range first,
-                // then use their position to anchor the CJK string search — this
-                // prevents indexOf from matching an earlier identical occurrence.
-                const sel = window.getSelection();
-                const activeRange = (sel && sel.rangeCount && !sel.isCollapsed)
-                    ? sel.getRangeAt(0).cloneRange()
-                    : (window.__savedHighlightRange || range);
-
-                // Find the index of the first ruby that overlaps the selection range
-                let anchorRubyIdx = -1;
-                if (activeRange && !activeRange.collapsed) {
-                    for (let i = 0; i < allRubies.length; i++) {
-                        try {
-                            const rr = document.createRange();
-                            rr.selectNode(allRubies[i]);
-                            // Ruby overlaps range if: ruby doesn't end before range starts
-                            // AND ruby doesn't start after range ends
-                            const endsBeforeStart = rr.compareBoundaryPoints(Range.END_TO_START, activeRange) >= 0;
-                            const startsAfterEnd  = rr.compareBoundaryPoints(Range.START_TO_END, activeRange) <= 0;
-                            if (!endsBeforeStart && !startsAfterEnd) {
-                                anchorRubyIdx = i;
-                                break;
-                            }
-                        } catch(e) {}
-                    }
-                }
-
-                // Convert anchor ruby index to a CJK string offset
-                let searchFromCJK = 0;
-                if (anchorRubyIdx > 0) {
-                    for (let i = 0; i < anchorRubyIdx; i++) searchFromCJK += rubyCJK[i].length;
-                }
-
-                const fullCJK = rubyCJK.join('');
-                const matchPos = fullCJK.indexOf(selCJK, searchFromCJK);
-
-                if (matchPos !== -1) {
-                    let charCount = 0;
-                    let startIdx = -1, endIdx = -1;
-                    for (let i = 0; i < allRubies.length; i++) {
-                        const len = rubyCJK[i].length;
-                        if (startIdx === -1 && charCount + len > matchPos) startIdx = i;
-                        if (charCount + len >= matchPos + selCJK.length) { endIdx = i; break; }
-                        charCount += len;
-                    }
-                    if (startIdx !== -1 && endIdx !== -1) {
-                        for (let i = startIdx; i <= endIdx; i++) {
-                            if (!allRubies[i].closest('span[data-highlight-id]'))
-                                liveTargets.push(allRubies[i]);
+            const liveRubies = [], liveTextNodes = [];
+            const startEl = (range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer);
+            const endEl = (range.endContainer.nodeType === Node.TEXT_NODE ? range.endContainer.parentElement : range.endContainer);
+            let para = startEl.closest('p, div.v, span.v, div.sb, div.sc, li, div.du, div.dc, h1, h2, h3, h4') || startEl.parentElement;
+            const endPara = endEl.closest('p, div.v, span.v, div.sb, div.sc, li, div.du, div.dc, h1, h2, h3, h4') || endEl.parentElement;
+            if (para && endPara && para !== endPara) { para = para.parentElement; while (para && !para.contains(endPara)) para = para.parentElement; }
+            if (para) {
+                const nodeWalker = document.createTreeWalker(para, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+                while (nodeWalker.nextNode()) {
+                    const node = nodeWalker.currentNode;
+                    try {
+                        const nr = document.createRange(); nr.selectNode(node);
+                        if (nr.compareBoundaryPoints(Range.START_TO_END, range) <= 0) continue;
+                        if (nr.compareBoundaryPoints(Range.END_TO_START, range) >= 0) continue;
+                    } catch(e) { continue; }
+                    if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'RUBY') {
+                        liveRubies.push(node);
+                    } else if (node.nodeType === Node.TEXT_NODE) {
+                        let insideRuby = false, insideHighlight = false;
+                        let anc = node.parentElement;
+                        while (anc && anc !== para) {
+                            if (anc.tagName === 'RUBY') { insideRuby = true; break; }
+                            if (anc.getAttribute('data-highlight-id')) { insideHighlight = true; break; }
+                            anc = anc.parentElement;
+                        }
+                        if (!insideRuby && !insideHighlight && node.textContent.trim() !== '' && !isFootnoteMarker(node) && !isReferenceSymbol(node)) {
+                            liveTextNodes.push(node);
                         }
                     }
                 }
             }
-
-            // ── Fallback: range geometry — used when CJK match fails, text is empty, or restoring ──
-            if (liveTargets.length === 0) {
-                // During restoration always use the passed-in range directly
-                const r = isRestore ? range : (() => {
-                    const sel = window.getSelection();
-                    return (sel && sel.rangeCount && !sel.isCollapsed)
-                        ? sel.getRangeAt(0).cloneRange()
-                        : (window.__savedHighlightRange || range);
-                })();
-
-                if (r && !r.collapsed) {
-                    allRubies.forEach(ruby => {
-                        if (ruby.closest('span[data-highlight-id]')) return;
-                        try {
-                            const rr = document.createRange();
-                            rr.selectNode(ruby);
-                            // During live selection: strict < 0 excludes any ruby whose
-                            // start coincides exactly with the selection end — the iOS
-                            // precision fix. During restoration: use <= 0 (inclusive) so
-                            // rubies at the exact boundary are not skipped.
-                            const endCheck = isRestore
-                                ? rr.compareBoundaryPoints(Range.START_TO_END, r) <= 0
-                                : rr.compareBoundaryPoints(Range.START_TO_END, r) < 0;
-                            if (rr.compareBoundaryPoints(Range.END_TO_START, r) > 0 && endCheck) {
-                                liveTargets.push(ruby);
-                            }
-                        } catch(e) {}
-                    });
-                }
+            function makeHlSpan() {
+                const span = document.createElement('span');
+                span.style.backgroundColor = color; span.style.color = 'black';
+                span.setAttribute('data-highlight-id', highlightID);
+                addRemoveListener(span); return span;
             }
-
-            if (liveTargets.length) {
-                // Capture the correct container NOW from the range, before the
-                // setTimeout. document.querySelector after the timeout can find
-                // main-page copies of the same text (restored via getRelatedTooltipKeys)
-                // and incorrectly route the save to document.body.
-                const _saveContainer = (() => {
-                    try {
-                        const anc = range.commonAncestorContainer;
-                        const el = anc.nodeType === Node.ELEMENT_NODE ? anc : anc.parentElement;
-                        return el.closest('.tooltip, .tooltipContainer') || document.body;
-                    } catch(e) { return document.body; }
-                })();
- 
-                function makeHlSpan() {
-                    const span = document.createElement('span');
-                    span.style.backgroundColor = color;
-                    span.style.color = 'black';
-                    span.setAttribute('data-highlight-id', highlightID);
-                    addRemoveListener(span);
-                    return span;
+            liveRubies.forEach(ruby => {
+                if (ruby.closest('span[data-highlight-id]')) return;
+                const span = makeHlSpan(); ruby.parentNode.replaceChild(span, ruby); span.appendChild(ruby);
+            });
+            liveTextNodes.forEach(n => {
+                if (n.parentNode && !n.parentNode.getAttribute('data-highlight-id')) {
+                    const span = makeHlSpan(); n.parentNode.replaceChild(span, n); span.appendChild(n);
                 }
-                setTimeout(() => {
-                    liveTargets.forEach(ruby => {
-                        const span = makeHlSpan();
-                        ruby.parentNode.replaceChild(span, ruby);
-                        span.appendChild(ruby);
-                    });
-                    if (!skipSave) {
-                        debouncedSave(_saveContainer);
-                    }
-                }, 0);
-            }
-            return;
+            });
         } else {
             const startEl2 = (range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer);
             const endEl2 = (range.endContainer.nodeType === Node.TEXT_NODE ? range.endContainer.parentElement : range.endContainer);
-            let para2 = startEl2.closest('p, div.v, div.sb, div.sc, li, div.du, div.dc, h1, h2, h3, h4') || startEl2.parentElement;
-            const endPara2 = endEl2.closest('p, div.v, div.sb, div.sc, li, div.du, div.dc, h1, h2, h3, h4') || endEl2.parentElement;
+            let para2 = startEl2.closest('p, div.v, span.v, div.sb, div.sc, li, div.du, div.dc, h1, h2, h3, h4') || startEl2.parentElement;
+            const endPara2 = endEl2.closest('p, div.v, span.v, div.sb, div.sc, li, div.du, div.dc, h1, h2, h3, h4') || endEl2.parentElement;
             if (para2 && endPara2 && para2 !== endPara2) { para2 = para2.parentElement; while (para2 && !para2.contains(endPara2)) para2 = para2.parentElement; }
             const isCompact = para2 && para2.querySelector('.wol-char-wrap');
             if (isCompact) {
@@ -4081,8 +3968,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                         }
                     });
                     while (tw.nextNode()) {
-                        const n = tw.currentNode; 
-                        if (!n.textContent.trim() || isPunctuationOnly(n)) continue;
+                        const n = tw.currentNode; if (!n.textContent.trim()) continue;
                         try {
                             const wr = document.createRange(); wr.selectNode(wrap);
                             if (!(wr.compareBoundaryPoints(Range.END_TO_START, range) > 0) && !(wr.compareBoundaryPoints(Range.START_TO_END, range) < 0)) {
@@ -4105,7 +3991,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 const plainNodes = [];
                 while (plainTw.nextNode()) {
                     const n = plainTw.currentNode;
-                    if (!n.textContent.trim() || isFootnoteMarker(n) || isReferenceSymbol(n) || isPunctuationOnly(n)) continue;
+                    if (!n.textContent.trim() || isFootnoteMarker(n) || isReferenceSymbol(n)) continue;
                     try {
                         const wr = document.createRange(); wr.selectNode(n);
                         if (!(wr.compareBoundaryPoints(Range.END_TO_START, range) > 0) && !(wr.compareBoundaryPoints(Range.START_TO_END, range) < 0)) {
@@ -4124,19 +4010,11 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                     textNodes.push(node);
                 }
                 textNodes.forEach(n => wrapTextNode(n));
-                splitRange.deleteContents(); splitRange.insertNode(frag);
+                range.deleteContents(); range.insertNode(frag);
             }
-            if (!skipSave) {
-                // Use range-derived container (same fix as ruby branch above)
-                const _saveContainer2 = (() => {
-                    try {
-                        const anc = range.startContainer;
-                        const el = anc.nodeType === Node.ELEMENT_NODE ? anc : anc.parentElement;
-                        return el.closest('.tooltip, .tooltipContainer') || document.body;
-                    } catch(e) { return document.body; }
-                })();
-                debouncedSave(_saveContainer2);
-            }
+        }
+        if (!skipSave) {
+            debouncedSave(_saveContainer);
         }
     }
 
@@ -4447,11 +4325,14 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         if (!tooltipHeader) return;
         tooltip.querySelectorAll('a.bibleCitation, a.publicationCitation, a[class*="pub-"]').forEach(link => {
             link.addEventListener('click', () => {
-                // Save highlights synchronously before unwrapping and removing DOM
-                if (tooltip.querySelector('span[data-highlight-id]')) saveHighlights(tooltip);
-                tooltip.querySelectorAll('span[data-highlight-id]').forEach(span => unwrapSpan(span));
-                const container = tooltip.closest('.tooltipContainer, .tooltip') || tooltip;
-                container.style.display = 'none'; container.remove();
+                // Save highlights synchronously before unwrapping.
+                // Pass the tooltip container (which has the pub- link needed by
+                // getKeys) not a child element — so getKeys() finds the correct key
+                // even after the node is detached.
+                const tooltipRoot = tooltip.closest('.tooltipContainer, .tooltip') || tooltip;
+                if (tooltipRoot.querySelector('span[data-highlight-id]')) saveHighlights(tooltipRoot);
+                tooltipRoot.querySelectorAll('span[data-highlight-id]').forEach(span => unwrapSpan(span));
+                tooltipRoot.style.display = 'none'; tooltipRoot.remove();
             }, { once: true });
         });
         tooltipHeader.style.cssText = 'display:flex !important;align-items:center !important;justify-content:flex-start !important;flex-wrap:nowrap !important;gap:0 !important;';

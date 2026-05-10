@@ -11,11 +11,11 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM.xmlHttpRequest
 // @connect      raw.githubusercontent.com
+// @connect      script.google.com
 // ==/UserScript==
 
 // ─────────────────────────────────────────────────────────────
 // 0. PRE-HIDE RUBY (must run before everything else)
-// ─────────────────────────────────────────────────────────────
 (function preHideRuby() {
     if (localStorage.getItem('wol_app_mode') !== 'study') return;
     const s = document.createElement('style');
@@ -57,6 +57,9 @@
 
         function showUpdateToast(versionData) {
         if (localStorage.getItem('study_chinese_update_' + versionData.version)) return;
+
+        safeWindow._wolFontInitSeen = false;
+        safeWindow._wolFontRestoring = false;
 
         const toast = document.createElement('div');
         toast.style.position = 'fixed';
@@ -432,8 +435,13 @@
     let db = null;
 
     // Debounced save — prevents duplicate saves when DOM mutations fire rapidly
+    // For tooltips: save immediately (they may be closed/removed within 400ms,
+    // which would cause the debounced save to find no spans and DELETE the entry)
     const _saveTimers = new WeakMap();
     function debouncedSave(container) {
+        const isTooltip = !!(container && container !== document.body &&
+            container.closest && container.closest('.tooltip, .tooltipContainer'));
+        if (isTooltip) { saveHighlights(container); return; }
         if (_saveTimers.has(container)) clearTimeout(_saveTimers.get(container));
         _saveTimers.set(container, setTimeout(() => {
             _saveTimers.delete(container);
@@ -499,6 +507,15 @@ const T = {
         linkNotFound:     { en: 'Link not found on this page.', ko: '이 페이지에서 링크를 찾을 수 없습니다.', ja: 'このページにリンクが見つかりません。', es: 'Enlace no encontrado en esta página.' },
         noWatchtower:     { en: 'Could not find Watchtower link.', ko: '파수대 링크를 찾을 수 없습니다.', ja: '塔の見張りのリンクが見つかりません。', es: 'No se encontró el enlace de La Atalaya.' },
         noDailyText:      { en: 'Could not find Daily Text link.', ko: '오늘의 성구 링크를 찾을 수 없습니다.', ja: 'テキストのリンクが見つかりません。', es: 'No se encontrado el enlace del texto del día.' },
+        feedbackTitle:    { en: 'Feedback', ko: '피드백', ja: 'フィードバック', es: 'Comentarios' },
+        sendFeedbackBtn:  { en: 'Send Feedback', ko: '피드백 보내기', ja: 'フィードバックを送る', es: 'Enviar comentarios' },
+        sendFeedbackPrompt: { en: 'Send feedback or report a bug:', ko: '피드백을 보내거나 버그를 신고하세요:', ja: 'フィードバックを送るかバグを報告してください:', es: 'Envía comentarios o reporta un error:' },
+        rateTitle:        { en: 'Rate this app', ko: '앱 평가하기', ja: 'アプリを評価', es: 'Calificar esta app' },
+        rateThankYou:     { en: 'Thank you for your feedback!', ko: '피드백 감사합니다!', ja: 'フィードバックありがとうございます！', es: '¡Gracias por tus comentarios!' },
+        cancelLabel:      { en: 'Cancel', ko: '취소', ja: 'キャンセル', es: 'Cancelar' },
+        submitLabel:      { en: 'Submit', ko: '제출', ja: '送信', es: 'Enviar' },
+        rateAppBtn:       { en: 'Rate this app', ko: '앱 평가하기', ja: 'アプリを評価', es: 'Calificar esta app' },
+        rateModalTitle:   { en: 'Rate this app', ko: '앱 평가하기', ja: 'アプリを評価する', es: 'Calificar esta app' },
     };
 
     // t(key, ...args) — look up translated string
@@ -507,6 +524,183 @@ const T = {
         if (!entry) return key;
         const val = entry[_lang] || entry.en;
         return typeof val === 'function' ? val(...args) : val;
+    }
+
+    // ── Google Form URL with browser language ──
+    const FEEDBACK_FORM_BASE = 'https://docs.google.com/forms/d/e/1FAIpQLSfNiT0bHB480vD50ZqYu8UHQJ3ac5V5jKnQUZ08AUK7vse1Rg/viewform';
+    const RATING_ENDPOINT = 'https://script.google.com/macros/s/AKfycbyhYFGLGx7rkhEDiKfsCIBURjCniETliMQkiKPYQ30NrAjy0PZcY2Lbs-8c5XopW3v4nw/exec';
+
+    function getFeedbackURL() {
+        const lang = (navigator.language || navigator.userLanguage || 'en').toLowerCase();
+        // Map to Google's hl codes
+        const hl = lang.startsWith('ko') ? 'ko'
+                 : lang.startsWith('ja') ? 'ja'
+                 : lang.startsWith('es') ? 'es'
+                 : 'en';
+        return FEEDBACK_FORM_BASE + '?hl=' + hl;
+    }
+
+    function _sendToEndpoint(payload) {
+        const body = JSON.stringify(payload);
+        // GM_xmlhttpRequest bypasses CORS entirely — works on Firefox + Chrome extensions
+        if (typeof GM_xmlhttpRequest !== 'undefined') {
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: RATING_ENDPOINT,
+                headers: { 'Content-Type': 'text/plain' },
+                data: body,
+                onload: () => {},
+                onerror: () => {}
+            });
+        } else if (typeof GM !== 'undefined' && typeof GM.xmlHttpRequest !== 'undefined') {
+            GM.xmlHttpRequest({
+                method: 'POST',
+                url: RATING_ENDPOINT,
+                headers: { 'Content-Type': 'text/plain' },
+                data: body,
+                onload: () => {},
+                onerror: () => {}
+            });
+        } else {
+            // Fallback: fetch no-cors (iOS/Safari userscript runners)
+            fetch(RATING_ENDPOINT, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'text/plain' },
+                body
+            }).catch(() => {});
+        }
+    }
+
+    function sendRating(rating) {
+        _sendToEndpoint({ app: 'Study Chinese', type: 'rating', rating, userAgent: navigator.userAgent });
+    }
+
+    function sendFeedback() {
+        showFeedbackModal({
+            title: t('sendFeedbackPrompt'),
+            hasInput: true,
+            onSubmit: (msg) => _sendToEndpoint({ app: 'Study Chinese', type: 'feedback', message: msg, userAgent: navigator.userAgent })
+        });
+    }
+
+    // ── Shared thank-you toast (reuses the app's existing toast style) ──
+    function showThankYouToast() {
+        const msg = t('rateThankYou');
+        const toast = document.createElement('div');
+        toast.textContent = msg;
+        toast.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(30,30,30,0.92);color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:15px;font-weight:500;padding:12px 22px;border-radius:999px;z-index:2147483647;pointer-events:none;white-space:nowrap;box-shadow:0 4px 18px rgba(0,0,0,0.28);opacity:0;transition:opacity 0.2s ease';
+        document.body.appendChild(toast);
+        requestAnimationFrame(() => { toast.style.opacity = '1'; });
+        setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 2200);
+    }
+
+    // ── iOS-style modal popup (dark overlay, centred card) ──
+    function showFeedbackModal({ title, hasInput, onSubmit }) {
+        // Overlay
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:2147483640;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;';
+
+        // Card
+        const card = document.createElement('div');
+        card.style.cssText = 'background:#f9f9f9;border-radius:14px;width:100%;max-width:320px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;box-shadow:0 8px 32px rgba(0,0,0,0.32);';
+
+        // Title
+        const titleEl = document.createElement('div');
+        titleEl.textContent = title;
+        titleEl.style.cssText = 'font-size:17px;font-weight:600;color:#1a1a1a;text-align:center;padding:20px 20px 12px 20px;';
+        card.appendChild(titleEl);
+
+        // Input (optional)
+        let inputEl = null;
+        if (hasInput) {
+            inputEl = document.createElement('textarea');
+            inputEl.rows = 3;
+            inputEl.style.cssText = 'display:block;width:100%;box-sizing:border-box;border:none;border-top:1px solid #e0e0e0;border-bottom:1px solid #e0e0e0;background:#fff;font-size:15px;color:#1a1a1a;padding:12px 16px;resize:none;outline:none;font-family:inherit;';
+            inputEl.placeholder = '...';
+            card.appendChild(inputEl);
+        }
+
+        // Star row (for rating modal)
+        let starSubmitValue = 0;
+        let starEls = [];
+        if (!hasInput) {
+            const RATE_KEY = 'wol_user_rating';
+            const savedRating = parseInt(localStorage.getItem(RATE_KEY) || '0', 10);
+            starSubmitValue = savedRating;
+
+            const starsRow = document.createElement('div');
+            starsRow.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:8px;padding:8px 20px 16px 20px;border-top:1px solid #e0e0e0;border-bottom:1px solid #e0e0e0;background:#fff;';
+
+            function renderModalStars(n) {
+                starEls.forEach((s, i) => {
+                    s.textContent = i < n ? '★' : '☆';
+                    s.style.color = i < n ? '#f5a623' : '#bbb';
+                });
+            }
+
+            for (let i = 1; i <= 5; i++) {
+                const star = document.createElement('span');
+                star.textContent = i <= savedRating ? '★' : '☆';
+                star.style.cssText = 'font-size:32px;cursor:pointer;color:' + (i <= savedRating ? '#f5a623' : '#bbb') + ';-webkit-user-select:none;user-select:none;transition:color 0.12s;';
+                const idx = i;
+                const handleStar = (ev) => {
+                    ev.stopPropagation();
+                    starSubmitValue = idx;
+                    renderModalStars(idx);
+                };
+                star.addEventListener('click', handleStar);
+                star.addEventListener('touchend', (ev) => { ev.preventDefault(); handleStar(ev); }, { passive: false });
+                starEls.push(star);
+                starsRow.appendChild(star);
+            }
+            card.appendChild(starsRow);
+        }
+
+        // Button row
+        const btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display:flex;align-items:center;border-top:1px solid #e0e0e0;';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.textContent = t('cancelLabel');
+        cancelBtn.style.cssText = 'flex:1;padding:14px 0;background:none;border:none;border-right:1px solid #e0e0e0;font-size:16px;color:#666;cursor:pointer;font-family:inherit;';
+
+        const submitBtn = document.createElement('button');
+        submitBtn.textContent = t('submitLabel');
+        submitBtn.style.cssText = 'flex:1;padding:14px 0;background:none;border:none;font-size:16px;font-weight:600;color:#007aff;cursor:pointer;font-family:inherit;';
+
+        function closeModal() { overlay.remove(); }
+
+        cancelBtn.addEventListener('click', closeModal);
+        cancelBtn.addEventListener('touchend', (e) => { e.preventDefault(); closeModal(); }, { passive: false });
+
+        submitBtn.addEventListener('click', () => {
+            const value = hasInput ? (inputEl.value.trim()) : starSubmitValue;
+            if (!value || value === 0) return;
+            closeModal();
+            onSubmit(value);
+            showThankYouToast();
+        });
+        submitBtn.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            const value = hasInput ? (inputEl.value.trim()) : starSubmitValue;
+            if (!value || value === 0) return;
+            closeModal();
+            onSubmit(value);
+            showThankYouToast();
+        }, { passive: false });
+
+        btnRow.appendChild(cancelBtn);
+        btnRow.appendChild(submitBtn);
+        card.appendChild(btnRow);
+        overlay.appendChild(card);
+
+        // Close on overlay tap
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
+        overlay.addEventListener('touchend', (e) => { if (e.target === overlay) { e.preventDefault(); closeModal(); } }, { passive: false });
+
+        document.body.appendChild(overlay);
+        if (inputEl) setTimeout(() => inputEl.focus(), 100);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -519,23 +713,28 @@ const T = {
         s.textContent = `
 /* ── Pinyin core ── */
 ruby rt { transition: opacity 0.15s ease; cursor: pointer; }
-body.wol-study-mode ruby { cursor: pointer; touch-action: manipulation; }
+ruby { cursor: pointer; touch-action: auto; }
+/* In study mode, take over touch handling from iOS — same as .wol-char-wrap in
+   compact mode. Prevents iOS's unreliable native long-press hit-testing on small
+   single-char ruby elements from silently dropping the selection. */
+body.wol-study-mode ruby { touch-action: manipulation; }
 body.wol-study-mode ruby rt,
 body.wol-study-mode ruby rt *,
 body.wol-study-mode .wol-char-pinyin {
     -webkit-user-select: none; user-select: none; pointer-events: none;
 }
 body.wol-study-mode ruby rb,
-body.wol-study-mode ruby rb * { -webkit-user-select: text; user-select: text; }
+body.wol-study-mode ruby rb * { 
+    -webkit-user-select: text; 
+    user-select: text;
+    pointer-events: auto;  /* allow selection handles in Firefox */
+}
 @media (hover: hover) and (pointer: fine) {
     body.wol-study-mode:not(.wol-highlighter-mode) ruby rb::selection,
     body.wol-study-mode:not(.wol-highlighter-mode) ruby rb *::selection { background: #b3d4ff; }
 }
-@media (hover: none) {
-    body.wol-study-mode:not(.wol-highlighter-mode) ruby rb::selection,
-    body.wol-study-mode:not(.wol-highlighter-mode) ruby rb *::selection { background: transparent; }
-}
-body.wol-study-mode .wol-char-wrap { -webkit-user-select: text; user-select: text; }
+
+body.wol-study-mode .wol-char-wrap { -webkit-user-select: text; user-select: text; touch-action: manipulation; }
 body.wol-study-mode ruby rb::selection,
 body.wol-study-mode ruby *::selection,
 body.wol-study-mode .wol-char-wrap::selection,
@@ -554,6 +753,11 @@ body.wol-highlighter-mode .wol-char-wrap *::selection { background: #b3d4ff; }
 .v.jwac-textHighlight ruby {
     background: none !important; outline: none !important;
     box-shadow: none !important; text-decoration: none !important;
+}
+/* ── Selection guard ── */
+body.wol-study-mode #article p, body.wol-study-mode #article div:not(.wol-char-wrap), body.wol-study-mode #article span:not(.wol-char-pinyin), 
+body.wol-study-mode .article p, body.wol-study-mode .article div:not(.wol-char-wrap), body.wol-study-mode .article span:not(.wol-char-pinyin) {
+    -webkit-user-select: text !important; user-select: text !important;
 }
 body.wol-study-mode:not(.wol-audio-active) #contextMenu { display: none !important; pointer-events: none !important; }
 
@@ -675,16 +879,18 @@ body.wol-highlighter-mode:not(.wol-playback-enabled) #contextMenu {
 body.wol-compact ul.documentMenu li { line-height: 1.75 !important; }
 
 /* ── Compact mode ── */
-body.wol-compact p, body.wol-compact .sb, body.wol-compact .sc,
-body.wol-compact h1, body.wol-compact h2, body.wol-compact h3, body.wol-compact h4,
-body.wol-compact .sl, body.wol-compact .sz, body.wol-compact .sm, body.wol-compact .sn,
-body.wol-compact fieldset legend,
-body.wol-compact fieldset label,
-body.wol-compact fieldset .gen-field,
-body.wol-compact .gen-field label {
+/* Only expand line-height when pinyin wraps are actually present — paragraphs
+   without pinyin keep their natural spacing, matching beginner/advanced behaviour. */
+body.wol-compact p:has(.wol-char-wrap), body.wol-compact .sb:has(.wol-char-wrap), body.wol-compact .sc:has(.wol-char-wrap),
+body.wol-compact h1:has(.wol-char-wrap), body.wol-compact h2:has(.wol-char-wrap), body.wol-compact h3:has(.wol-char-wrap), body.wol-compact h4:has(.wol-char-wrap),
+body.wol-compact .sl:has(.wol-char-wrap), body.wol-compact .sz:has(.wol-char-wrap), body.wol-compact .sm:has(.wol-char-wrap), body.wol-compact .sn:has(.wol-char-wrap),
+body.wol-compact fieldset legend:has(.wol-char-wrap),
+body.wol-compact fieldset label:has(.wol-char-wrap),
+body.wol-compact fieldset .gen-field:has(.wol-char-wrap),
+body.wol-compact .gen-field label:has(.wol-char-wrap) {
     line-height: 3em !important;
 }
-body.wol-compact #article li, body.wol-compact .article li, body.wol-compact .mainContent li {
+body.wol-compact #article li:has(.wol-char-wrap), body.wol-compact .article li:has(.wol-char-wrap), body.wol-compact .mainContent li:has(.wol-char-wrap) {
     line-height: 3em !important;
 }
 body.wol-compact .sl, body.wol-compact .sz,
@@ -704,7 +910,7 @@ body.wol-compact .sm .v, body.wol-compact .sn .v { display: inline-block !import
     opacity: 0; transition: opacity 0.15s ease; z-index: 1;
 }
 .wol-char-wrap.pinyin-pinned .wol-char-pinyin { opacity: 1 !important; }
-body.wol-highlighter-mode .wol-char-wrap { touch-action: auto; }
+body.wol-highlighter-mode .wol-char-wrap { touch-action: manipulation; }
 body.wol-compact ruby rt { display: none !important; }
 .documentMenu ruby rt, .documentMenu ruby rb { display: inline !important; }
 
@@ -749,11 +955,12 @@ body.wol-highlighter-mode p.qu.jwac-textHighlight {
     const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-    // ── Hide publication nav bar and media controls on iOS in study mode ──
-    (function injectIOSStudyStyles() {
-        if (!isIOS) return;
+    // ── Hide publication nav bar and media controls in study mode ──
+    // Player wrapper hidden on ALL platforms until wol-player-visible is set.
+    // wol-player-visible is added by enableStudyAudio() when user triggers audio.
+    (function injectStudyStyles() {
         const s = document.createElement('style');
-        s.id = 'wol_ios_study_styles';
+        s.id = 'wol_study_styles';
         s.textContent = `
 body.wol-study-mode #publicationNavigation,
 body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
@@ -782,6 +989,46 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
 
     function getPanelOpenTime() { return safeWindow.__wolPanelOpenTime || 0; }
 
+    // ── Shared: builds the Feedback section (with Rate button) appended to any panel ──
+    function buildFeedbackAndRateSections(panel) {
+        // ── Divider ──
+        const d1 = document.createElement('div'); d1.className = 'pp-divider'; panel.appendChild(d1);
+
+        // ── Feedback section ──
+        const fbSection = document.createElement('div'); fbSection.className = 'pp-section';
+        fbSection.style.padding = '6px 0 8px 0';
+        const fbTitle = document.createElement('div'); fbTitle.className = 'pp-section-title';
+        fbTitle.style.padding = '6px 14px 2px 14px'; fbTitle.textContent = t('feedbackTitle');
+        fbSection.appendChild(fbTitle);
+
+        function makeFbBtn(label, onClick) {
+            const btn = document.createElement('button');
+            btn.className = 'pp-btn pp-nav';
+            btn.textContent = label;
+            btn.style.cssText = 'margin:10px 14px;width:calc(100% - 28px);box-sizing:border-box;';
+            btn.addEventListener('click', (e) => { e.stopPropagation(); hidePanel(); onClick(); });
+            btn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); hidePanel(); onClick(); }, { passive: false });
+            return btn;
+        }
+
+        fbSection.appendChild(makeFbBtn(t('sendFeedbackBtn'), () => {
+            sendFeedback();
+        }));
+
+        fbSection.appendChild(makeFbBtn(t('rateAppBtn'), () => {
+            showFeedbackModal({
+                title: t('rateModalTitle'),
+                hasInput: false,
+                onSubmit: (rating) => {
+                    localStorage.setItem('wol_user_rating', rating);
+                    sendRating(rating);
+                }
+            });
+        }));
+
+        panel.appendChild(fbSection);
+    }
+
     // extraSectionsBuilder(panel) — optional callback to append extra sections
     // skipModeSection — if true, omit the Mode radio group (used by HL extras-only panel)
     function showPanel(anchorEl, extraSectionsBuilder, skipModeSection) {
@@ -789,13 +1036,27 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         const panel = getModePanel();
         panel.innerHTML = '';
 
+        // ── Lock position from anchor rect at the moment of first open ──
+        // Store it on the panel element so rebuilds can reuse it exactly.
+        const pw = 240;
+        const anchorRect = anchorEl.getBoundingClientRect();
+        let anchoredLeft = anchorRect.left;
+        const anchoredTop = anchorRect.bottom + 6;
+        if (anchoredLeft + pw > window.innerWidth) anchoredLeft = window.innerWidth - pw - 10;
+        if (anchoredLeft < 10) anchoredLeft = 10;
+        panel._anchoredLeft = anchoredLeft;
+        panel._anchoredTop  = anchoredTop;
+
         if (!skipModeSection) {
             const modeSection = document.createElement('div');
             modeSection.className = 'pp-section';
+            modeSection.style.padding = '28px 14px 6px 14px';
             const modeTitle = document.createElement('div');
             modeTitle.className = 'pp-section-title';
             modeTitle.textContent = t('modeTitle');
             modeSection.appendChild(modeTitle);
+            // ── ℹ️ icon appended directly to panel after modeSection is built ──
+            // (deferred below so it sits on top of all section content)
 
             const currentMode = getMode();
             [['default', t('modeRegular')], ['study', t('modeStudy')]].forEach(([val, label]) => {
@@ -837,67 +1098,220 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
 
         if (typeof extraSectionsBuilder === 'function') extraSectionsBuilder(panel);
 
-        // ── "How to use" section — hidden by default, revealed by ℹ️ button ──
-        if (!skipModeSection && getMode() === 'default') {
-            // ── Add ℹ️ button to the mode section title row ──
-            const modeSection = panel.querySelector('.pp-section');
-            if (modeSection) {
-                const modeTitle = modeSection.querySelector('.pp-section-title');
-                if (modeTitle) {
-                    modeTitle.style.display = 'flex';
-                    modeTitle.style.alignItems = 'center';
-                    modeTitle.style.justifyContent = 'space-between';
+        // ── ℹ️ button — appears in both regular and study mode ──
+        // In regular mode: expands to show "How to use" + Feedback + Rate
+        // In study mode:   collapses the full menu down to Mode + How to use + Feedback + Rate
+        const currentMode = getMode();
+        const modeSection = panel.querySelector('.pp-section');
+        if (!skipModeSection && modeSection) {
+            const modeTitle = modeSection.querySelector('.pp-section-title');
+            if (modeTitle) {
+                modeTitle.style.display = 'flex';
+                modeTitle.style.alignItems = 'center';
+                modeTitle.style.justifyContent = 'space-between';
 
-                    const infoBtn = document.createElement('span');
-                    infoBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <circle cx="14" cy="14" r="12" stroke="currentColor" stroke-width="1.5"/>
-                    <circle cx="14" cy="9" r="1.4" fill="currentColor"/>
-                    <line x1="14" y1="13" x2="14" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                    </svg>`;
-                    infoBtn.style.cssText = 'display:inline-flex;align-items:center;cursor:pointer;opacity:1;transition:opacity 0.15s,transform 0.15s;flex-shrink:0;color:#666;-webkit-user-select:none;user-select:none;';
-                    infoBtn.title = t('whatsNewTitle');
-                    modeTitle.appendChild(infoBtn);
+                const INFO_SVG = `<svg width="16" height="16" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="14" cy="14" r="12" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="1.4" fill="currentColor"/><line x1="14" y1="13" x2="14" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
 
-                    // Hidden expandable section
-                    const wnDivider = document.createElement('div');
-                    wnDivider.className = 'pp-divider';
-                    wnDivider.style.cssText = 'height:1px;background:#e8e8e8;margin:-2px 0;overflow:hidden;max-height:0;transition:max-height 0.28s cubic-bezier(.4,0,.2,1),opacity 0.22s ease;opacity:0;';
+                const infoBtn = document.createElement('span');
+                infoBtn.innerHTML = INFO_SVG;
+                infoBtn.style.position = 'absolute';
+                infoBtn.style.top = '10px';
+                infoBtn.style.right = '13px';
+                infoBtn.style.cursor = 'pointer';
+                
+                infoBtn.title = t('whatsNewTitle');
+                panel.appendChild(infoBtn);
 
-                    const wnSection = document.createElement('div');
-                    wnSection.style.cssText = 'padding:0;overflow:hidden;max-height:0;transition:max-height 0.28s cubic-bezier(.4,0,.2,1),opacity 0.22s ease,padding 0.22s ease;opacity:0;';
+                // ── Build the collapsible "How to use + Feedback + Rate" block ──
+                const wnDivider = document.createElement('div');
+                wnDivider.className = 'pp-divider';
+                wnDivider.style.cssText = 'height:1px;background:#e8e8e8;margin:-2px 0;overflow:hidden;max-height:0;transition:max-height 0.28s cubic-bezier(.4,0,.2,1),opacity 0.22s ease;opacity:0;';
 
-                    const wnInner = document.createElement('div');
-                    wnInner.style.padding = '6px 0 20px 0';
+                const wnSection = document.createElement('div');
+                wnSection.style.cssText = 'overflow:hidden;max-height:0;transition:max-height 0.45s cubic-bezier(.4,0,.2,1),opacity 0.35s ease;opacity:0;';
 
-                    const wnTitle = document.createElement('div');
-                    wnTitle.className = 'pp-section-title';
-                    wnTitle.style.padding = '6px 14px 2px 14px';
-                    wnTitle.textContent = t('whatsNewTitle');
-                    wnInner.appendChild(wnTitle);
+                const wnInner = document.createElement('div');
+                wnInner.style.padding = '6px 0 8px 0';
 
-                    const wnBtn = document.createElement('button');
-                    wnBtn.className = 'pp-btn pp-nav';
-                    wnBtn.textContent = t('whatsNew');
-                    wnBtn.style.margin = '10px 14px 10px 14px';
-                    wnBtn.addEventListener('click', () => {
-                        hidePanel();
-                        openFullscreenVideo('https://d1oegedfje2ody.cloudfront.net/Study_chinese.mp4');
-                    });
-                    wnInner.appendChild(wnBtn);
-                    wnSection.appendChild(wnInner);
+                const wnTitle = document.createElement('div');
+                wnTitle.className = 'pp-section-title';
+                wnTitle.style.padding = '6px 14px 2px 14px';
+                wnTitle.textContent = t('whatsNewTitle');
+                wnInner.appendChild(wnTitle);
 
-                    panel.appendChild(wnDivider);
-                    panel.appendChild(wnSection);
+                const wnBtn = document.createElement('button');
+                wnBtn.className = 'pp-btn pp-nav';
+                wnBtn.textContent = t('whatsNew');
+                wnBtn.style.margin = '6px 14px 6px 14px';
+                wnBtn.style.width = 'calc(100% - 28px)';
+                wnBtn.addEventListener('click', () => {
+                    hidePanel();
+                    openFullscreenVideo('https://d1oegedfje2ody.cloudfront.net/Study_chinese.mp4');
+                });
+                wnInner.appendChild(wnBtn);
+                wnSection.appendChild(wnInner);
 
-                    let expanded = false;
-                    function toggleHowToUse(e) {
-                        e.preventDefault(); e.stopPropagation();
-                        expanded = !expanded;
-                        infoBtn.style.transform = expanded ? 'scale(1.15)' : 'scale(1)';
+                // Feedback + Rate appended inside the collapsible block
+                buildFeedbackAndRateSections(wnSection);
+
+                panel.appendChild(wnDivider);
+                panel.appendChild(wnSection);
+
+                function repositionPanel() {
+                    setTimeout(() => {
+                        const rect = panel.getBoundingClientRect();
+                        if (rect.bottom > window.innerHeight - 10) {
+                            panel.style.top = Math.max(parseInt(panel.style.top) - (rect.bottom - window.innerHeight + 10), 4) + 'px';
+                        }
+                    }, 50);
+                }
+
+                let expanded = false;
+
+                function toggleHowToUse(e) {
+                    e.preventDefault(); e.stopPropagation();
+                    expanded = !expanded;
+                    infoBtn.style.transform = expanded ? 'scale(1.15)' : 'scale(1)';
+
+                    if (currentMode === 'study') {
+                        // ── Study mode: swap between full menu and compact info-only view ──
+                        // Instead of animating individual sections (which are already rendered
+                        // at full height), we rebuild the panel content in place.
+                        if (expanded) {
+                        // Snapshot the locked position set by showPanel — never recalculate
+                        const lockedLeft = panel._anchoredLeft;
+                        const lockedTop  = panel._anchoredTop;
+
+                        function applyLockedPosition() {
+                            panel.style.left = lockedLeft + 'px';
+                            panel.style.top  = lockedTop  + 'px';
+                        }
+
+                        panel.style.transition = 'opacity 0.18s ease';
+                        panel.style.opacity = '0';
+
+                        setTimeout(() => {
+                            panel.innerHTML = '';
+                            applyLockedPosition();
+
+                            // ── ✕ icon: absolutely positioned in panel top-right, zero layout impact ──
+                            const cancelAnchor = document.createElement('div');
+                            cancelAnchor.style.cssText = 'position:absolute;top:0;right:0;width:0;height:0;overflow:visible;pointer-events:none;';
+                            panel.appendChild(cancelAnchor);
+
+                            const cancelIcon = document.createElement('span');
+                            cancelIcon.innerHTML = '✕';
+                            cancelIcon.style.cssText = [
+                                'position:absolute',
+                                'top:8px',
+                                'right:10px',
+                                'display:inline-flex',
+                                'align-items:center',
+                                'justify-content:center',
+                                'width:22px',
+                                'height:22px',
+                                'cursor:pointer',
+                                'font-size:20px',
+                                'font-weight:900',
+                                '-webkit-text-stroke:0.5px currentColor',
+                                'color:#c00',
+                                'line-height:1',
+                                '-webkit-user-select:none',
+                                'user-select:none',
+                                'pointer-events:auto',
+                                'z-index:3',
+                            ].join(';');
+                            cancelIcon.title = t('cancelLabel');
+                            cancelAnchor.appendChild(cancelIcon);
+
+                            // ── HOW TO USE section — clean, no icon in flow ──
+                            const huSec = document.createElement('div'); huSec.className = 'pp-section';
+                            huSec.style.padding = '30px 0 8px 0';
+                            const huTitle = document.createElement('div'); huTitle.className = 'pp-section-title';
+                            huTitle.style.padding = '0 14px 4px 14px';
+                            huTitle.textContent = t('whatsNewTitle');
+                            huSec.appendChild(huTitle);
+                            const huBtn = document.createElement('button'); huBtn.className = 'pp-btn pp-nav';
+                            huBtn.textContent = t('whatsNew');
+                            huBtn.style.cssText = 'margin:6px 14px 10px 14px;width:calc(100% - 28px);box-sizing:border-box;';
+                            huBtn.addEventListener('click', () => { hidePanel(); openFullscreenVideo('https://d1oegedfje2ody.cloudfront.net/Study_chinese.mp4'); });
+                            huSec.appendChild(huBtn);
+                            panel.appendChild(huSec);
+
+                            // ── FEEDBACK + RATE section ──
+                            const d1 = document.createElement('div'); d1.className = 'pp-divider'; panel.appendChild(d1);
+                            const fbSec = document.createElement('div'); fbSec.className = 'pp-section';
+                            fbSec.style.padding = '6px 0 8px 0';
+                            const fbTitle = document.createElement('div'); fbTitle.className = 'pp-section-title';
+                            fbTitle.style.padding = '6px 14px 2px 14px';
+                            fbTitle.textContent = t('feedbackTitle');
+                            fbSec.appendChild(fbTitle);
+
+                            function makeFbBtnInfo(label, onClick) {
+                                const btn = document.createElement('button');
+                                btn.className = 'pp-btn pp-nav';
+                                btn.textContent = label;
+                                btn.style.cssText = 'margin:10px 14px;width:calc(100% - 28px);box-sizing:border-box;';
+                                btn.addEventListener('click', (e) => { e.stopPropagation(); hidePanel(); onClick(); });
+                                btn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); hidePanel(); onClick(); }, { passive: false });
+                                return btn;
+                            }
+
+                            fbSec.appendChild(makeFbBtnInfo(t('sendFeedbackBtn'), () => {
+                                sendFeedback();
+                            }));
+                            fbSec.appendChild(makeFbBtnInfo(t('rateAppBtn'), () => {
+                                showFeedbackModal({
+                                    title: t('rateModalTitle'),
+                                    hasInput: false,
+                                    onSubmit: (rating) => {
+                                        localStorage.setItem('wol_user_rating', rating);
+                                        sendRating(rating);
+                                    }
+                                });
+                            }));
+                            panel.appendChild(fbSec);
+
+                            // ── Wire ✕ to restore full study panel ──
+                            function restoreFullStudyPanel(ev) {
+                                ev.preventDefault(); ev.stopPropagation();
+                                panel.style.transition = 'opacity 0.15s ease';
+                                panel.style.opacity = '0';
+                                setTimeout(() => {
+                                    // Pass a fake anchor whose getBoundingClientRect
+                                    // returns the locked position — prevents any recalc
+                                    const fakeAnchor = {
+                                        getBoundingClientRect: () => ({
+                                            left:   lockedLeft,
+                                            bottom: lockedTop - 6,
+                                            right:  lockedLeft + 240,
+                                            top:    lockedTop - 50,
+                                            width:  240,
+                                            height: 44
+                                        })
+                                    };
+                                    showPanel(fakeAnchor, buildStudyExtras);
+                                    requestAnimationFrame(() => {
+                                        panel.style.transition = 'opacity 0.18s ease';
+                                        panel.style.opacity = '1';
+                                    });
+                                }, 160);
+                            }
+                            cancelIcon.addEventListener('click', restoreFullStudyPanel);
+                            cancelIcon.addEventListener('touchend', (ev) => { ev.preventDefault(); restoreFullStudyPanel(ev); }, { passive: false });
+
+                            panel.style.transition = 'opacity 0.18s ease';
+                            panel.style.opacity = '1';
+                        }, 180);
+                    }
+                    // Restore is handled by the ✕ button built above
+
+                    } else {
+                        // ── Regular mode: simple expand/collapse ──
                         if (expanded) {
                             wnDivider.style.maxHeight = '2px';
                             wnDivider.style.opacity = '1';
-                            wnSection.style.maxHeight = '90px';
+                            wnSection.style.maxHeight = '600px';
                             wnSection.style.opacity = '1';
                         } else {
                             wnDivider.style.maxHeight = '0';
@@ -905,31 +1319,21 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                             wnSection.style.maxHeight = '0';
                             wnSection.style.opacity = '0';
                         }
-                        // Reposition panel after expansion
-                        setTimeout(() => {
-                            const pw = 240;
-                            const rect = panel.getBoundingClientRect();
-                            if (rect.bottom > window.innerHeight - 10) {
-                                panel.style.top = Math.max(parseInt(panel.style.top) - (rect.bottom - window.innerHeight + 10), 4) + 'px';
-                            }
-                        }, 30);
+                        repositionPanel();
                     }
-                    infoBtn.addEventListener('click', toggleHowToUse);
-                    infoBtn.addEventListener('touchend', toggleHowToUse, { passive: false });
                 }
+
+                infoBtn.addEventListener('click', toggleHowToUse);
+                infoBtn.addEventListener('touchend', toggleHowToUse, { passive: false });
             }
         }
 
         panel.style.display = 'block';
         panel.getBoundingClientRect();
 
-        const pw = 240;
-        const rect = anchorEl.getBoundingClientRect();
-        let left = rect.left, top = rect.bottom + 6;
-        if (left + pw > window.innerWidth) left = window.innerWidth - pw - 10;
-        if (left < 10) left = 10;
-        panel.style.left = left + 'px';
-        panel.style.top = top + 'px';
+        // Use the locked anchor position captured above
+        panel.style.left = panel._anchoredLeft + 'px';
+        panel.style.top  = panel._anchoredTop  + 'px';
         panel.classList.add('pp-open');
         panel.onmouseleave = () => hidePanel();
     }
@@ -937,6 +1341,10 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     function hidePanel() {
         const panel = document.getElementById('wol_mode_panel');
         if (!panel) return;
+        // Clear any inline opacity/transition left over from info-view rebuilds
+        // so the CSS transition in #wol_mode_panel takes over cleanly
+        panel.style.removeProperty('opacity');
+        panel.style.removeProperty('transition');
         panel.classList.remove('pp-open');
         setTimeout(() => {
             if (panel && !panel.classList.contains('pp-open')) panel.style.display = 'none';
@@ -1222,9 +1630,11 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     let cTouchMoved = false, cTouchWrap = null;
     let cLastTapWrap = null, cLastTapTime = 0, cDoubleTapJustFired = false;
     let rLastTapRuby = null, rLastTapTime = 0, rDoubleTapJustFired = false;
+    let tLTR_tooltip = null, tLTT_tooltip = 0; // tooltip double-tap state (module-level)
+    let cTooltipLastTap = 0; // compact tooltip double-tap: module-level so it survives tooltip re-renders
     let _compactTouchInstalled = false, _compactTouchArticleEl = null;
-
-    function attachClickHandlers() {
+    function attachClickHandlers(root) {
+        root = root || document;
         if (compact) {
             const articleEl = document.querySelector('#article, .article, .mainContent, body');
             if (!_compactTouchInstalled || _compactTouchArticleEl !== articleEl) {
@@ -1240,6 +1650,8 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                     if (e.touches.length > 0) { cTouchStartX = e.touches[0].clientX; cTouchStartY = e.touches[0].clientY; }
                     cTouchStartTime = Date.now();
                     cTouchWrap = wrap;
+                    const sel = window.getSelection();
+                    if (sel && !sel.isCollapsed && !sel.toString().trim()) sel.removeAllRanges();
                 }, { passive: true });
 
                 articleEl.addEventListener('touchmove', (e) => {
@@ -1256,12 +1668,13 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                     if (!wrap || cTouchMoved) return;
                     if (e.target.closest('a')) return;
                     if (Date.now() - cTouchStartTime > 400) return;
+                    const sel = window.getSelection();
+                    if (sel && !sel.isCollapsed) sel.removeAllRanges();
                     const paletteOpen = !!document.getElementById('wol_hl_float_palette');
                     const now = Date.now();
                     const isDoubleTap = (now - cLastTapTime < 500) && (cLastTapWrap === wrap);
                     closeDocumentMenuIfOpen();
                     if (isDoubleTap) {
-                        // Double-tap always works — pins/unpins pinyin regardless of palette state
                         e.stopPropagation(); e.preventDefault();
                         cLastTapTime = 0; cLastTapWrap = null;
                         cDoubleTapJustFired = true;
@@ -1279,7 +1692,6 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                             localStorage.setItem(PINYIN_STORAGE_KEY, JSON.stringify(savedProgress));
                         }
                     } else if (!paletteOpen) {
-                        // Single tap without palette — show temporarily (skip if pinned)
                         e.stopPropagation();
                         const p = wrap.querySelector('.wol-char-pinyin');
                         cLastTapTime = now; cLastTapWrap = wrap;
@@ -1293,13 +1705,15 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                             fadeTimers.set(wrap, timer);
                         }
                     } else {
-                        // Single tap with palette open — track for double-tap detection, no pinyin flash
                         cLastTapTime = now; cLastTapWrap = wrap;
                     }
                 }, { passive: false });
             }
 
-            document.querySelectorAll('.wol-char-wrap').forEach(wrap => {
+            // Desktop mouse handlers — set once per wrap, cheap since no touch listeners
+            root.querySelectorAll('.wol-char-wrap').forEach(wrap => {
+                if (wrap._wolClickBound) return;
+                wrap._wolClickBound = true;
                 wrap.onclick = (e) => {
                     if (e.pointerType === 'touch') return;
                     if (e.target.closest('a')) return;
@@ -1327,12 +1741,30 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             return;
         }
 
-        // Non-compact (beginner / advanced)
+        // Non-compact (beginner / advanced) — delegated on article element.
+        // One set of listeners for all ruby elements; avoids O(n) listener
+        // registration on long pages like 30-article daily text.
         const rubyArticle = document.querySelector('#article, .article, .mainContent, body');
-        let rTouchStartX = 0, rTouchStartY = 0, rTouchMoved = false, rTouchRuby = null, rTouchStartTime = 0;
-
         if (!rubyArticle._wolRubyTouchInstalled) {
             rubyArticle._wolRubyTouchInstalled = true;
+
+            // Document-level guard: iOS fires a synthetic touchend/click after
+            // touchcancel (long-press takeover). Block those so WOL's handlers
+            // don't dismiss the native selection handles.
+            let _rubyLongPressActive = false;
+            document.addEventListener('touchend', (e) => {
+                if (!_rubyLongPressActive) return;
+                _rubyLongPressActive = false;
+                e.stopPropagation(); e.preventDefault();
+            }, { capture: true, passive: false });
+            document.addEventListener('click', (e) => {
+                if (!_rubyLongPressActive) return;
+                _rubyLongPressActive = false;
+                e.stopPropagation(); e.preventDefault();
+            }, { capture: true });
+
+            let rTouchStartX = 0, rTouchStartY = 0, rTouchMoved = false;
+            let rTouchRuby = null, rTouchStartTime = 0;
 
             rubyArticle.addEventListener('touchstart', (e) => {
                 rTouchMoved = false; rTouchRuby = null;
@@ -1343,6 +1775,10 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 rTouchStartY = e.touches[0].clientY;
                 rTouchStartTime = Date.now();
                 rTouchRuby = ruby;
+                // Reset long-press guard only when no real selection is active
+                const sel = window.getSelection();
+                if (!sel || sel.isCollapsed) _rubyLongPressActive = false;
+                if (sel && !sel.isCollapsed && !sel.toString().trim()) sel.removeAllRanges();
             }, { passive: true });
 
             rubyArticle.addEventListener('touchmove', (e) => {
@@ -1352,12 +1788,25 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 if (Math.abs(dx) > 8 || Math.abs(dy) > 8) { rTouchMoved = true; rTouchRuby = null; }
             }, { passive: true });
 
+            // iOS fires touchcancel when it takes over for native text selection.
+            rubyArticle.addEventListener('touchcancel', () => {
+                if (rTouchRuby) _rubyLongPressActive = true;
+                rTouchRuby = null;
+            }, { passive: true });
+
             rubyArticle.addEventListener('touchend', (e) => {
                 const ruby = rTouchRuby; rTouchRuby = null;
                 if (!ruby || rTouchMoved) return;
                 if (e.target.closest('a')) return;
                 if (e.target.closest('.tooltip, .tooltipContainer')) return;
-                if (Date.now() - rTouchStartTime > 500) return;
+                const elapsed = Date.now() - rTouchStartTime;
+                if (elapsed > 400) {
+                    // Long-press: arm guard in case iOS sent touchend instead of touchcancel
+                    _rubyLongPressActive = true;
+                    return;
+                }
+                const sel = window.getSelection();
+                if (sel && !sel.isCollapsed) sel.removeAllRanges();
                 closeDocumentMenuIfOpen();
                 e.stopPropagation(); e.preventDefault();
                 window.getSelection && window.getSelection().removeAllRanges();
@@ -1365,7 +1814,8 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 if (!rb || !rt) return;
                 const word = rb.textContent;
                 if (level === 'beginner') {
-                    const allMatches = Array.from(document.querySelectorAll('ruby')).filter(r => r.querySelector('rb')?.textContent === word);
+                    const allMatches = Array.from(document.querySelectorAll('ruby'))
+                        .filter(r => r.querySelector('rb')?.textContent === word);
                     const currentlyVisible = allMatches.some(r => r.querySelector('rt').style.opacity === '1');
                     const newOp = currentlyVisible ? '0' : '1';
                     allMatches.forEach(r => { r.querySelector('rt').style.opacity = newOp; });
@@ -1374,11 +1824,11 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 } else {
                     const now = Date.now();
                     const isDouble = (now - rLastTapTime < 500) && (rLastTapRuby === ruby);
-                    if (!isDouble) { rLastTapTime = now; rLastTapRuby = ruby; }
                     if (isDouble) {
                         rLastTapTime = 0; rLastTapRuby = null;
                         rDoubleTapJustFired = true;
                         setTimeout(() => { rDoubleTapJustFired = false; }, 600);
+                        window.getSelection && window.getSelection().removeAllRanges();
                         if (fadeTimers.has(ruby)) { clearTimeout(fadeTimers.get(ruby)); fadeTimers.delete(ruby); }
                         ruby.classList.toggle('pinyin-pinned');
                         const pinned = ruby.classList.contains('pinyin-pinned');
@@ -1387,32 +1837,38 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                         if (rkey) { if (pinned) savedProgress[rkey] = true; else delete savedProgress[rkey]; }
                         localStorage.setItem(PINYIN_STORAGE_KEY, JSON.stringify(savedProgress));
                     } else {
-                        if (ruby.classList.contains('pinyin-pinned')) return;
-                        rt.style.opacity = '1';
-                        if (fadeTimers.has(ruby)) clearTimeout(fadeTimers.get(ruby));
-                        const timer = setTimeout(() => {
-                            if (!ruby.classList.contains('pinyin-pinned')) rt.style.opacity = '0';
-                            fadeTimers.delete(ruby);
-                        }, 1000);
-                        fadeTimers.set(ruby, timer);
+                        rLastTapTime = now; rLastTapRuby = ruby;
+                        if (!ruby.classList.contains('pinyin-pinned')) {
+                            rt.style.opacity = '1';
+                            if (fadeTimers.has(ruby)) clearTimeout(fadeTimers.get(ruby));
+                            const timer = setTimeout(() => {
+                                if (!ruby.classList.contains('pinyin-pinned')) rt.style.opacity = '0';
+                                fadeTimers.delete(ruby);
+                            }, 1000);
+                            fadeTimers.set(ruby, timer);
+                        }
                     }
                 }
             }, { passive: false });
         }
 
-        document.querySelectorAll('ruby').forEach((ruby) => {
+        // Desktop mouse handlers — cheap onclick/ondblclick per element
+        root.querySelectorAll('ruby').forEach((ruby) => {
+            if (ruby._wolClickBound) return;
+            ruby._wolClickBound = true;
             const rb = ruby.querySelector('rb'), rt = ruby.querySelector('rt');
             if (!rb || !rt) return;
             const word = rb.textContent;
-            ruby.onclick = null; ruby.ondblclick = null;
             ruby.onclick = (e) => {
                 if (e.pointerType === 'touch') return;
+                if (Date.now() - (ruby._wolTouchEndedAt || 0) < 600) return;
                 if (rDoubleTapJustFired) return;
                 if (e.target.closest('a')) return;
                 e.stopPropagation();
                 window.getSelection && window.getSelection().removeAllRanges();
                 if (level === 'beginner') {
-                    const allMatches = Array.from(document.querySelectorAll('ruby')).filter(r => r.querySelector('rb')?.textContent === word);
+                    const allMatches = Array.from(document.querySelectorAll('ruby'))
+                        .filter(r => r.querySelector('rb')?.textContent === word);
                     const currentlyVisible = allMatches.some(r => r.querySelector('rt').style.opacity === '1');
                     const newOp = currentlyVisible ? '0' : '1';
                     allMatches.forEach(r => { r.querySelector('rt').style.opacity = newOp; });
@@ -1450,6 +1906,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     function buildStudyExtras(panel) {
         const d1 = document.createElement('div'); d1.className = 'pp-divider'; panel.appendChild(d1);
         const levelSection = document.createElement('div'); levelSection.className = 'pp-section pp-level-section';
+        levelSection.style.padding = '7px 14px 4px 14px';
         const levelTitle = document.createElement('div'); levelTitle.className = 'pp-section-title';
         levelTitle.textContent = t('levelTitle'); levelSection.appendChild(levelTitle);
 
@@ -1481,7 +1938,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         // Quick links
         const dQL = document.createElement('div'); dQL.className = 'pp-divider'; panel.appendChild(dQL);
         const qlSection = document.createElement('div'); qlSection.className = 'pp-section';
-        qlSection.style.padding = '6px 0 8px 0';
+        qlSection.style.padding = '6px 0 6px 0';
         const qlTitle = document.createElement('div'); qlTitle.className = 'pp-section-title';
         qlTitle.style.padding = '6px 14px 2px 14px'; qlTitle.textContent = t('quickLinks');
         qlSection.appendChild(qlTitle);
@@ -1641,12 +2098,11 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         e.stopImmediatePropagation();
     }
 
-    // ── Study mode audio ──
-    // Par number tap → show contextMenu + player wrapper (iOS).
-    // Highlighter icon tap → hide both. Player stays visible while audio plays.
     function enableStudyAudio() {
+        // wol-player-visible reveals the player wrapper on ALL platforms.
+        // Same CSS gate that was iOS-only now applies to Firefox/desktop too.
+        document.body.classList.add('wol-player-visible');
         document.body.classList.add('wol-audio-active');
-        if (isIOS) document.body.classList.add('wol-player-visible');
         const cm = document.getElementById('contextMenu');
         if (cm) cm.style.removeProperty('display');
         patchVerseLinksForAudio();
@@ -1654,13 +2110,31 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     }
     function disableStudyAudio() {
         document.body.classList.remove('wol-audio-active');
-        if (isIOS) document.body.classList.remove('wol-player-visible');
+        document.body.classList.remove('wol-player-visible');
         const cm = document.getElementById('contextMenu');
         if (cm) cm.style.setProperty('display', 'none', 'important');
     }
 
+    // Auto-deactivate audio mode when the player wrapper is hidden by WOL
+    // (e.g. navigating away from an article that had audio). This clears
+    // wol-audio-active so the context menu suppression resumes correctly.
+    new MutationObserver(() => {
+        if (!document.body.classList.contains('wol-audio-active')) return;
+        if (!getPlaybackEnabled()) return;
+        const wrapper = document.getElementById('playerwrapper');
+        if (!wrapper) return;
+        const s = window.getComputedStyle(wrapper);
+        // Only deactivate if WOL itself hid the player (not our own CSS class)
+        if (s.display === 'none' && !document.body.classList.contains('wol-player-visible')) {
+            disableStudyAudio();
+        }
+    }).observe(document.body, {
+        childList: true, subtree: true,
+        attributes: true, attributeFilter: ['style', 'class']
+    });
+
     function patchVerseLinksForAudio() {
-        if (!isIOS || !getPlaybackEnabled() || getMode() !== 'study') return;
+        if (!getPlaybackEnabled() || getMode() !== 'study') return;
         document.querySelectorAll('a.vl.vx.vp, span.v a.vl').forEach(link => {
             if (link.dataset.wolHrefPatched) return;
             link.dataset.wolHrefPatched = 'true';
@@ -1673,7 +2147,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     }
 
     function patchParLinksForAudio() {
-        if (!isIOS || !getPlaybackEnabled() || getMode() !== 'study') return;
+        if (!getPlaybackEnabled() || getMode() !== 'study') return;
         document.querySelectorAll('span.parNum, [class*="parNum"], a[id^="p"], h1[data-pid], h2[data-pid], h3[data-pid], h4[data-pid], p.qu strong:first-child').forEach(el => {
             if (el.dataset.wolParPatched) return;
             el.dataset.wolParPatched = 'true';
@@ -1688,8 +2162,60 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         });
     }
 
-    new MutationObserver(() => patchParLinksForAudio())
-    .observe(document.body, { childList: true, subtree: true });
+    new MutationObserver(() => {
+        if (document.body.classList.contains('wol-audio-active')) patchParLinksForAudio();
+    }).observe(document.body, { childList: true, subtree: true });
+
+    // ── Desktop: click on verse punctuation/space → show play button (bible view only) ──
+    document.addEventListener('click', (e) => {
+        if (getMode() !== 'study') return;
+        if (!getPlaybackEnabled()) return;
+        // Desktop only — touch devices use the long-press path
+        if (e.pointerType === 'touch') return;
+        // Only in bible sync view
+        if (!location.href.includes('bsync') && !location.href.includes('/b/r')) return;
+        // Must be inside a verse span
+        const verseSpan = e.target.closest('span.v');
+        if (!verseSpan) return;
+        // Skip clicks on ruby, char-wraps, links — those have their own handlers
+        if (e.target.closest('ruby, rb, rt, .wol-char-wrap, a')) return;
+        enableStudyAudio();
+    }, { capture: true });
+
+    // ── Desktop: click on paragraph numbers or workbook headings → show play button ──
+    // Mirrors the iOS long-press path (_parLinkFromEvent) but for desktop clicks.
+    // Matches:
+    //   • span.parNum  (paragraph number badges like ³)
+    //   • h1–h4[data-pid] whose first child is NOT a ruby (workbook part headings
+    //     like "2．经文宝石" where the number label is a plain <strong>)
+    document.addEventListener('click', (e) => {
+        if (getMode() !== 'study') return;
+        if (!getPlaybackEnabled()) return;
+        // Desktop only
+        if (e.pointerType === 'touch') return;
+        // Skip ruby/char-wrap taps — those are pinyin interactions
+        if (e.target.closest('ruby, rb, rt, .wol-char-wrap')) return;
+
+        // Match paragraph number spans
+        const parNum = e.target.closest('span.parNum, [class*="parNum"]');
+        if (parNum) {
+            enableStudyAudio();
+            return;
+        }
+
+        // Match workbook headings that start with a plain number/label (not ruby)
+        const heading = e.target.closest('h1[data-pid], h2[data-pid], h3[data-pid], h4[data-pid]');
+        if (heading) {
+            // Skip if the tap landed on a ruby (pinyin tap)
+            if (e.target.closest('ruby, rb, rt')) return;
+            // Skip headings whose first element child is a ruby — those are
+            // content headings (article subheadings), not workbook part labels
+            const firstChild = heading.firstElementChild;
+            if (firstChild && firstChild.tagName === 'RUBY') return;
+            enableStudyAudio();
+            return;
+        }
+    }, { capture: true });
 
     // Capture-phase mousedown+touchstart: enable audio on par tap BEFORE WOL's handler.
     // Using mousedown ensures wol-audio-active is set before WOL shows contextMenu.
@@ -1714,16 +2240,123 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         return e.target.closest('a[id^="p"], .parNum, [class*="parNum"], p.qu > strong:first-child');
     }
 
-    if (isIOS) {
-        // ── Prevent question box collapse on touch ──
+    // ── Non-iOS (Firefox / Android touch): long-press verse or par → show audio player ──
+    if (!isIOS) {
+        let _ffVerseLPTimer = null, _ffVerseLPFired = false;
+        let _ffParLPTimer   = null, _ffParLPFired   = false;
+        let _ffTouchMoved   = false, _ffTouchStartX = 0, _ffTouchStartY = 0;
+        // Flag: true once the hold threshold has passed (safe to preventDefault)
+        let _ffHoldActive   = false;
+ 
         document.addEventListener('touchstart', (e) => {
             if (getMode() !== 'study') return;
-            if (e.target.closest('.tooltip, .tooltipContainer')) return;
-            const qu = e.target.closest('p.qu[data-pid], .wol-qu-wrap');
-            if (!qu) return;
-            if (e.target.closest('ruby, rb, rt, .wol-char-wrap, .wol-qu-toggle, .wol-ta-field')) return;
-            e.stopImmediatePropagation();
+            if (!getPlaybackEnabled()) return;
+            if (e.target.closest('.wol-char-wrap, ruby, rb, rt')) return;
+            const isVerseLink = !!e.target.closest('a.vl.vx.vp, span.v a.vl');
+            const isParNum = !!_parLinkFromEvent(e);
+            if (!isVerseLink && !isParNum) return;
+            // Prevent immediately for BOTH parNum and verse links so Android's
+            // context menu / touchcancel cannot fire and cancel the hold timer.
+            e.preventDefault();
         }, { capture: true, passive: false });
+ 
+        document.addEventListener('touchstart', (e) => {
+            if (getMode() !== 'study') return;
+            if (!getPlaybackEnabled()) return;
+            if (e.target.closest('.wol-char-wrap, ruby, rb, rt')) return;
+            _ffTouchMoved   = false;
+            _ffVerseLPFired = false;
+            _ffParLPFired   = false;
+            _ffHoldActive   = false;
+            _ffTouchStartX  = e.touches[0].clientX;
+            _ffTouchStartY  = e.touches[0].clientY;
+ 
+            const verseLink = e.target.closest('a.vl.vx.vp, span.v a.vl');
+            if (verseLink) {
+                // After 200ms set hold active so next touchstart can preventDefault
+                _ffVerseLPTimer = setTimeout(() => {
+                    if (_ffTouchMoved) return;
+                    _ffHoldActive = true;
+                }, 200);
+                // After 450ms fire audio
+                const fireTimer = setTimeout(() => {
+                    if (_ffTouchMoved) return;
+                    _ffVerseLPFired = true;
+                    enableStudyAudio();
+                    const verseSpan = verseLink.closest('span.v');
+                    if (verseSpan) {
+                        const rect = verseSpan.getBoundingClientRect();
+                        verseSpan.dispatchEvent(new MouseEvent('click', {
+                            bubbles: true, cancelable: true,
+                            clientX: rect.left + rect.width / 2,
+                            clientY: rect.top + rect.height / 2,
+                            view: window
+                        }));
+                    }
+                }, 450);
+                // Store both timers; cancel both on move/end
+                _ffVerseLPTimer = fireTimer;
+                return;
+            }
+            const parLink = _parLinkFromEvent(e);
+            if (parLink) {
+                setTimeout(() => { if (!_ffTouchMoved) _ffHoldActive = true; }, 150);
+                _ffParLPTimer = setTimeout(() => {
+                    if (_ffTouchMoved) return;
+                    _ffParLPFired = true;
+                    enableStudyAudio();
+                    const rect = parLink.getBoundingClientRect();
+                    parLink.dispatchEvent(new MouseEvent('click', {
+                        bubbles: true, cancelable: true,
+                        clientX: rect.left + 5,
+                        clientY: rect.top + 5,
+                        view: window
+                    }));
+                }, 450);
+            }
+        }, { capture: true, passive: true });
+ 
+        document.addEventListener('touchmove', (e) => {
+            const dx = e.touches[0].clientX - _ffTouchStartX;
+            const dy = e.touches[0].clientY - _ffTouchStartY;
+            if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+                _ffTouchMoved = true;
+                _ffHoldActive = false;
+                if (_ffVerseLPTimer) { clearTimeout(_ffVerseLPTimer); _ffVerseLPTimer = null; }
+                if (_ffParLPTimer)   { clearTimeout(_ffParLPTimer);   _ffParLPTimer   = null; }
+            }
+        }, { capture: true, passive: true });
+ 
+        document.addEventListener('touchcancel', () => {
+            _ffHoldActive = false;
+            if (_ffVerseLPTimer) { clearTimeout(_ffVerseLPTimer); _ffVerseLPTimer = null; }
+            if (_ffParLPTimer)   { clearTimeout(_ffParLPTimer);   _ffParLPTimer   = null; }
+            _ffVerseLPFired = false;
+            _ffParLPFired   = false;
+        }, { capture: true, passive: true });
+ 
+        document.addEventListener('touchend', (e) => {
+            _ffHoldActive = false;
+            if (_ffVerseLPTimer) { clearTimeout(_ffVerseLPTimer); _ffVerseLPTimer = null; }
+            if (_ffParLPTimer)   { clearTimeout(_ffParLPTimer);   _ffParLPTimer   = null; }
+            if (_ffVerseLPFired && e.target.closest('a.vl.vx.vp, span.v a.vl')) {
+                _ffVerseLPFired = false;
+                e.preventDefault(); e.stopImmediatePropagation();
+                return;
+            }
+            if (_ffParLPFired && _parLinkFromEvent(e)) {
+                _ffParLPFired = false;
+                e.preventDefault(); e.stopImmediatePropagation();
+                return;
+            }
+            _ffVerseLPFired = false;
+            _ffParLPFired   = false;
+        }, { capture: true, passive: false });
+    }
+
+
+    if (isIOS) {
+
 
         let _verseLongPressTimer = null;
         let _verseTouchMoved = false;
@@ -1731,10 +2364,30 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         let _parLongPressTimer = null;
         let _parTouchMoved = false;
         let _parLongPressFired = false;
+        let _touchStartTarget = null;
+
+        // Separate non-passive listener just for verse links — needs preventDefault
+        // to stop iOS from starting a text selection during the long-press hold.
+        // Only active when playback is enabled and we're in a bible sync view.
+        document.addEventListener('touchstart', (e) => {
+            if (getMode() !== 'study') return;
+            if (!getPlaybackEnabled()) return;
+            if (e.target.closest('.wol-char-wrap')) return;
+            const verseLink = e.target.closest('a.vl.vx.vp, span.v a.vl');
+            if (!verseLink) return;
+            // Prevent iOS from initiating text selection on long-press of verse links
+            e.preventDefault();
+        }, { capture: true, passive: false });
 
         document.addEventListener('touchstart', (e) => {
             if (getMode() !== 'study') return;
             if (!getPlaybackEnabled()) return;
+            // Store target for later verification - skip ALL audio logic if on char-wrap or whitespace
+            _touchStartTarget = e.target.closest('.wol-char-wrap');
+            if (_touchStartTarget) return;
+            // Skip if target is just whitespace
+            if (e.target.nodeType === Node.TEXT_NODE && !e.target.textContent.trim()) return;
+            if (e.target.nodeType === Node.TEXT_NODE && e.target.parentElement) e.target = e.target.parentElement;
             const verseLink = e.target.closest('a.vl.vx.vp, span.v a.vl');
             if (verseLink) {
                 _verseTouchMoved = false;
@@ -1777,7 +2430,8 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             }
         }, { capture: true, passive: true });
 
-        document.addEventListener('touchmove', () => {
+        document.addEventListener('touchmove', (e) => {
+            if (_touchStartTarget) return;
             _verseTouchMoved = true;
             if (_verseLongPressTimer) { clearTimeout(_verseLongPressTimer); _verseLongPressTimer = null; }
             _parTouchMoved = true;
@@ -1785,17 +2439,37 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         }, { capture: true, passive: true });
 
         document.addEventListener('touchend', (e) => {
+            const wasVerseLongPress = _verseLongPressFired;
+            const wasParLongPress   = _parLongPressFired;
+
             if (_verseLongPressTimer) { clearTimeout(_verseLongPressTimer); _verseLongPressTimer = null; }
-            if (_verseLongPressFired) {
+            if (wasVerseLongPress && !_touchStartTarget && e.target.closest('a.vl.vx.vp, span.v a.vl')) {
+                // Long-press already handled — suppress the synthetic click
                 _verseLongPressFired = false;
-                const verseLink = e.target.closest('a.vl.vx.vp, span.v a.vl');
-                if (verseLink) { e.preventDefault(); e.stopImmediatePropagation(); }
+                e.preventDefault(); e.stopImmediatePropagation();
+            } else {
+                _verseLongPressFired = false;
+                // Single tap on a verse link: the first touchstart listener called
+                // e.preventDefault() which swallowed the native click, so we must
+                // re-fire it manually so the verse behaves normally (tooltip, selection, etc.)
+                if (!_verseTouchMoved && !_touchStartTarget) {
+                    const verseLink = e.target.closest('a.vl.vx.vp, span.v a.vl');
+                    if (verseLink) {
+                        e.preventDefault(); e.stopImmediatePropagation();
+                        setTimeout(() => verseLink.dispatchEvent(new MouseEvent('click', {
+                            bubbles: true, cancelable: true, view: window
+                        })), 0);
+                    }
+                }
             }
             if (_parLongPressTimer) { clearTimeout(_parLongPressTimer); _parLongPressTimer = null; }
-            if (_parLongPressFired) {
+            if (wasParLongPress && !_touchStartTarget && _parLinkFromEvent(e)) {
                 _parLongPressFired = false;
-                if (_parLinkFromEvent(e)) { e.preventDefault(); e.stopImmediatePropagation(); }
+                e.preventDefault(); e.stopImmediatePropagation();
+            } else {
+                _parLongPressFired = false;
             }
+            _touchStartTarget = null;
         }, { capture: true, passive: false });
 
         document.addEventListener('contextmenu', (e) => {
@@ -2063,7 +2737,6 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 if (chars.length > 1 && syllables.length === chars.length) {
                     chars.forEach((ch, i) => {
                         const w = makeCharWrap(ch, syllables[i], isBold);
-                        // Store rkey + char index so each sub-char has a unique key
                         if (rkey) w.setAttribute('data-rkey', rkey + '_c' + i);
                         group.appendChild(w);
                     });
@@ -2075,50 +2748,92 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 ruby.replaceWith(group);
             });
 
+            // Restore pin state for all wraps
             tooltip.querySelectorAll('.wol-char-wrap').forEach(wrap => {
                 const wrapKey = wrap.getAttribute('data-rkey');
-                // Restore pin state using position key, same as advanced mode
                 const pinned = wrapKey ? savedProgress[wrapKey] === true : false;
                 wrap.classList.toggle('pinyin-pinned', pinned);
                 const p = wrap.querySelector('.wol-char-pinyin');
                 if (p) p.style.opacity = pinned ? '1' : '0';
+            });
 
-                let lastTap = 0, touchStartTime = 0;
-                wrap.addEventListener('touchstart', () => { touchStartTime = Date.now(); }, { passive: true });
-                wrap.addEventListener('touchend', (e) => {
-                    if (Date.now() - touchStartTime > 400) return;
-                    const now = Date.now(), delta = now - lastTap;
-                    lastTap = now;
-                    if (delta < 300 && delta > 0) {
-                        e.stopPropagation(); e.preventDefault(); lastTap = 0;
-                        window.getSelection && window.getSelection().removeAllRanges();
-                        if (fadeTimers.has(wrap)) { clearTimeout(fadeTimers.get(wrap)); fadeTimers.delete(wrap); }
-                        const p2 = wrap.querySelector('.wol-char-pinyin');
-                        wrap.classList.toggle('pinyin-pinned');
-                        const nowPinned = wrap.classList.contains('pinyin-pinned');
-                        if (p2) p2.style.opacity = nowPinned ? '1' : '0';
-                        if (wrapKey) {
-                            if (nowPinned) savedProgress[wrapKey] = true;
-                            else delete savedProgress[wrapKey];
-                            localStorage.setItem(PINYIN_STORAGE_KEY, JSON.stringify(savedProgress));
-                        }
-                    } else {
-                        e.stopPropagation();
-                        if (!wrap.classList.contains('pinyin-pinned')) showPinyinTemporarily(wrap);
+            // Single tooltip-level touch handler instead of one per wrap.
+            // Avoids N non-passive listeners (better scroll performance) and
+            // survives any DOM replacement between taps (cTTLastWrap tracks
+            // data-rkey string, not object identity).
+            let cTTTouchStartTime = 0, cTTTouchMoved = false;
+            let cTTStartX = 0, cTTStartY = 0;
+            let cTTLastKey = null, cTTLastTime = 0;
+
+            tooltip.addEventListener('touchstart', (e) => {
+                cTTTouchStartTime = Date.now();
+                cTTTouchMoved = false;
+                if (e.touches.length > 0) {
+                    cTTStartX = e.touches[0].clientX;
+                    cTTStartY = e.touches[0].clientY;
+                }
+                const sel = window.getSelection();
+                if (sel && !sel.isCollapsed && !sel.toString().trim()) sel.removeAllRanges();
+            }, { passive: true });
+
+            tooltip.addEventListener('touchmove', (e) => {
+                if (e.touches.length > 0) {
+                    const dx = Math.abs(e.touches[0].clientX - cTTStartX);
+                    const dy = Math.abs(e.touches[0].clientY - cTTStartY);
+                    if (dx > 10 || dy > 10) cTTTouchMoved = true;
+                }
+            }, { passive: true });
+
+            tooltip.addEventListener('touchend', (e) => {
+                if (cTTTouchMoved || Date.now() - cTTTouchStartTime > 400) return;
+                const wrap = e.target.closest('.wol-char-wrap');
+                if (!wrap) return;
+                const sel = window.getSelection();
+                if (sel && !sel.isCollapsed) sel.removeAllRanges();
+
+                // Suppress synthetic click so WOL doesn't collapse tooltip between taps
+                e.stopPropagation(); e.preventDefault();
+
+                const wrapKey = wrap.getAttribute('data-rkey');
+                const now = Date.now();
+                const isDouble = (now - cTTLastTime < 500) && (cTTLastKey === (wrapKey || wrap));
+
+                if (isDouble) {
+                    cTTLastKey = null; cTTLastTime = 0;
+                    window.getSelection && window.getSelection().removeAllRanges();
+                    if (fadeTimers.has(wrap)) { clearTimeout(fadeTimers.get(wrap)); fadeTimers.delete(wrap); }
+                    const p = wrap.querySelector('.wol-char-pinyin');
+                    wrap.classList.toggle('pinyin-pinned');
+                    const nowPinned = wrap.classList.contains('pinyin-pinned');
+                    if (p) p.style.opacity = nowPinned ? '1' : '0';
+                    if (wrapKey) {
+                        if (nowPinned) savedProgress[wrapKey] = true;
+                        else delete savedProgress[wrapKey];
+                        localStorage.setItem(PINYIN_STORAGE_KEY, JSON.stringify(savedProgress));
                     }
-                }, { passive: false });
+                } else {
+                    cTTLastKey = wrapKey || wrap; cTTLastTime = now;
+                    if (!wrap.classList.contains('pinyin-pinned')) showPinyinTemporarily(wrap);
+                }
+            }, { passive: false });
+
+            // Desktop mouse handlers on each wrap (no touch involvement)
+            tooltip.querySelectorAll('.wol-char-wrap').forEach(wrap => {
+                const wrapKey = wrap.getAttribute('data-rkey');
                 wrap.onclick = (e) => {
+                    if (e.pointerType === 'touch') return;
                     e.stopPropagation();
                     if (!wrap.classList.contains('pinyin-pinned')) showPinyinTemporarily(wrap);
                 };
                 wrap.ondblclick = (e) => {
+                    if (e.pointerType === 'touch') return;
                     e.preventDefault(); e.stopPropagation();
                     window.getSelection && window.getSelection().removeAllRanges();
                     if (fadeTimers.has(wrap)) { clearTimeout(fadeTimers.get(wrap)); fadeTimers.delete(wrap); }
-                    const p2 = wrap.querySelector('.wol-char-pinyin');
+                    const p = wrap.querySelector('.wol-char-pinyin');
                     wrap.classList.toggle('pinyin-pinned');
                     const nowPinned = wrap.classList.contains('pinyin-pinned');
-                    if (p2) p2.style.opacity = nowPinned ? '1' : '0';
+                    if (p) p.style.opacity = nowPinned ? '1' : '0';
                     if (wrapKey) {
                         if (nowPinned) savedProgress[wrapKey] = true;
                         else delete savedProgress[wrapKey];
@@ -2173,11 +2888,18 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                     }
                 };
             });
-            let tLTR = null, tLTT = 0, tTSX = 0, tTSY = 0, tTM = false, tTR = null, tTSTime = 0;
+            let tTSX = 0, tTSY = 0, tTM = false, tTR = null, tTSTime = 0; // tLTR/tLTT now module-level
             tooltip.addEventListener('touchstart', (e) => {
                 tTM = false; tTR = null;
                 const ruby = e.target.closest('ruby');
                 if (!ruby || e.target.closest('a')) return;
+                // Only clear ghost/empty stuck selections; preserve real selections
+                // so that dragging selection handles after a long-press still works.
+                const sel = window.getSelection();
+                if (sel && !sel.isCollapsed) {
+                    const selText = sel.toString();
+                    if (!selText || !selText.trim()) sel.removeAllRanges();
+                }
                 tTSX = e.touches[0].clientX; tTSY = e.touches[0].clientY;
                 tTSTime = Date.now(); tTR = ruby;
             }, { passive: true });
@@ -2190,11 +2912,15 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 const ruby = tTR; tTR = null;
                 if (!ruby || tTM) return;
                 if (e.target.closest('a')) return;
-                if (Date.now() - tTSTime > 400) return;
+                if (Date.now() - tTSTime > 500) return;
+                // Always preventDefault on ruby taps inside tooltips — prevents the
+                // browser's synthetic click from causing WOL to collapse/re-render
+                // the tooltip between the two taps, which would reset tLTT_tooltip.
+                e.preventDefault();
                 e.stopPropagation();
                 const now = Date.now();
-                const isDouble = (now - tLTT < 300) && (tLTR === ruby);
-                tLTT = now; tLTR = ruby;
+                const isDouble = (now - tLTT_tooltip < 500) && (tLTR_tooltip === ruby);
+                tLTT_tooltip = now; tLTR_tooltip = ruby;
                 const rb = ruby.querySelector('rb'), rt = ruby.querySelector('rt');
                 if (!rb || !rt) return;
                 const word = rb.textContent;
@@ -2208,7 +2934,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                     tooltipProgress[word] = (op === '0');
                 } else {
                     if (isDouble) {
-                        e.preventDefault(); tLTT = 0; tLTR = null;
+                        tLTT_tooltip = 0; tLTR_tooltip = null;
                         window.getSelection && window.getSelection().removeAllRanges();
                         if (fadeTimers.has(ruby)) { clearTimeout(fadeTimers.get(ruby)); fadeTimers.delete(ruby); }
                         ruby.classList.toggle('pinyin-pinned');
@@ -2234,49 +2960,28 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     }
 
     // ── qu tap suppression ──
-    function isNonInteractiveQuTap(e) {
-        if (getMode() !== 'study') return false;
-        const qu = e.target.closest('.qu, .wol-qu-wrap');
-        if (!qu) return false;
-        return !e.target.closest('ruby, rb, rt, .wol-char-wrap, a, .wol-qu-toggle, .wol-ta-field');
-    }
-    let _quTouchStartY = 0;
-    document.addEventListener('touchstart', (e) => {
-        if (!isNonInteractiveQuTap(e)) return;
-        const link = e.target.closest('a');
-        if (link && !link.matches('a[id^="p"], .parNum, [class*="parNum"]')) {
-            // scripture or other non-par links inside .qu — don't interfere
-            return;
-        }
-        e.stopImmediatePropagation();
-        if (!link) {
-            if (!document.getElementById('wol_hl_float_palette')) e.preventDefault();
-        }
-    }, { capture: true, passive: false });
-
-    document.addEventListener('touchmove', (e) => {
-        if (!e.target.closest('.qu')) return;
-        if (e.target.closest('.tooltip, .tooltipContainer')) return;
-        const dy = Math.abs(e.touches[0].clientY - _quTouchStartY);
-        if (dy > 8) return; // it's a scroll — let it through
-        if (getMode() !== 'study') return;
-        if (!e.target.closest('ruby, rb, rt, .wol-char-wrap, strong, a')) {
-            e.stopImmediatePropagation();
-        }
-    }, { capture: true, passive: true });
+    // Only intercept clicks (not touchstart/touchmove) so that per-ruby touch
+    // handlers — needed for long-press char selection — are never blocked.
+    // detail >= 1 means a real tap; detail === 0 is a synthetic iOS post-selection
+    // event which must pass through so handle-dragging works inside p.qu.
     document.addEventListener('click', (e) => {
-        if (!isNonInteractiveQuTap(e)) return;
+        if (getMode() !== 'study') return;
         if (e.target.closest('.tooltip, .tooltipContainer')) return;
-        e.stopImmediatePropagation();
+        const qu = e.target.closest('.qu, .wol-qu-wrap');
+        if (!qu) return;
+        if (e.target.closest('.wol-qu-toggle, .wol-ta-field')) return;
         const link = e.target.closest('a');
         if (link && link.matches('a[id^="p"], .parNum, [class*="parNum"]')) {
-            e.preventDefault();
+            e.stopImmediatePropagation(); e.preventDefault();
             enableStudyAudio();
-        } else if (link) {
-            // scripture or other links — let them open naturally (tooltip etc.)
-        } else {
-            e.preventDefault();
+            return;
         }
+        if (link) return; // scripture/other links — let them open naturally
+        if (e.detail === 0) return; // synthetic iOS selection event — do not block
+        // Let clicks on ruby/wol-char-wrap elements pass through to pinyin handlers.
+        if (e.target.closest('ruby, rb, .wol-char-wrap')) return;
+        e.stopImmediatePropagation();
+        e.preventDefault();
     }, true);
 
     // ─────────────────────────────────────────────────────────────
@@ -2515,30 +3220,55 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         return lastPct;
     }
     (function patchInsertRule() {
-        const targetProto = (typeof unsafeWindow !== 'undefined')
-            ? unsafeWindow.CSSStyleSheet.prototype
-            : CSSStyleSheet.prototype;
-        const orig = targetProto.insertRule;
-        targetProto.insertRule = function(rule, index) {
-            const result = orig.call(this, rule, index);
-            if (/\.scalableui\s*\{[^}]*font-size\s*:/i.test(rule)) {
-                const match = rule.match(/font-size\s*:\s*([^;}"]+)/i);
-                if (match) {
-                    const newPct = match[1].trim();
-                    const display = document.getElementById('wol_fontsize_display');
-                    if (display) display.textContent = pctToPt(newPct);
-                    if (localStorage.getItem(FONT_SIZE_REMEMBER_KEY) === 'true'
-                        && !safeWindow._wolFontRestoring && safeWindow._wolFontInitSeen) {
-                        localStorage.setItem(FONT_SIZE_KEY, newPct);
+        try {
+            const win = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
+            const orig = win.CSSStyleSheet.prototype.insertRule;
+            win.CSSStyleSheet.prototype.insertRule = function(rule, index) {
+                const result = orig.call(this, rule, index);
+                if (/\.scalableui\s*\{[^}]*font-size\s*:/i.test(rule)) {
+                    const match = rule.match(/font-size\s*:\s*([^;}"]+)/i);
+                    if (match) {
+                        const newPct = match[1].trim();
+                        const display = document.getElementById('wol_fontsize_display');
+                        if (display) display.textContent = pctToPt(newPct);
+                        if (localStorage.getItem(FONT_SIZE_REMEMBER_KEY) === 'true'
+                            && !safeWindow._wolFontRestoring
+                            && safeWindow._wolFontInitSeen) {
+                            localStorage.setItem(FONT_SIZE_KEY, newPct);
+                        }
+                        safeWindow._wolFontInitSeen = true;
+                        clearTimeout(safeWindow._wolScrollTodayTimer);
+                        safeWindow._wolScrollTodayTimer = setTimeout(scrollToToday, 300);
                     }
-                    safeWindow._wolFontInitSeen = true;
-                    clearTimeout(safeWindow._wolScrollTodayTimer);
-                    safeWindow._wolScrollTodayTimer = setTimeout(scrollToToday, 300);
                 }
+                return result;
+            };
+        } catch(e) {}
+
+        // Polling fallback for iOS where prototype patch may not intercept page calls
+        let _lastPolledPct = null;
+        setInterval(() => {
+            const pct = getCurrentScalableUIPct();
+            if (!pct || pct === _lastPolledPct) return;
+            _lastPolledPct = pct;
+
+            const display = document.getElementById('wol_fontsize_display');
+            if (display) display.textContent = pctToPt(pct);
+
+            if (localStorage.getItem(FONT_SIZE_REMEMBER_KEY) === 'true'
+                && !safeWindow._wolFontRestoring
+                && safeWindow._wolFontInitSeen) {
+                localStorage.setItem(FONT_SIZE_KEY, pct);
             }
-            return result;
-        };
-    })();
+
+            safeWindow._wolFontInitSeen = true;
+
+            // ✅ THIS is the missing piece
+            clearTimeout(safeWindow._wolScrollTodayTimer);
+            safeWindow._wolScrollTodayTimer = setTimeout(scrollToToday, 200);
+
+        }, 300);
+    })();                                                    
 
     function scrollToToday() {
         setTimeout(() => {
@@ -2652,8 +3382,8 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             checkbox.checked = newState; li.classList.toggle('checked', newState);
             setPlaybackEnabled(newState);
             if (getMode() === 'study') {
-                // In study mode: toggle controls audio UI directly
-                if (newState) enableStudyAudio();
+                // In study mode: only activate if player is also currently visible
+                if (newState) enableStudyAudio(); // enableStudyAudio guards internally
                 else disableStudyAudio();
             } else {
                 applyPlaybackState(newState);
@@ -2714,27 +3444,108 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         for (let i = 0; i < str.length; i++) { hash = ((hash << 5) - hash) + str.charCodeAt(i); hash = hash & hash; }
         return Math.abs(hash).toString(36);
     }
-    // Two canonical keys per container — article ref + tooltip mirror
+    // Derive one canonical storage key for any context (main page or tooltip).
+    // Both the bible page and its verse tooltip resolve to the same key so
+    // highlights are shared between them automatically.
+    function canonicalKey(pathnameOrHref) {
+        const clean = pathnameOrHref.split('#')[0].split('?')[0];
+        return extractArticleRef(clean) || extractScriptureRef(clean) || clean;
+    }
+
+    function getPageKey() {
+        return canonicalKey(window.location.pathname);
+    }
+
+    function getTooltipKey(tooltip) {
+        const link = tooltip.querySelector('a.bibleCitation, a.publicationCitation, a[class*="pub-"]');
+        if (link) {
+            const href = link.getAttribute('href');
+            if (href) {
+                const abs = new URL(href, window.location.href).pathname;
+                return canonicalKey(abs);
+            }
+        }
+        return 'tooltip_' + simpleHash(tooltip.textContent.trim().substring(0, 500));
+    }
+
+    // Key strategy:
+    //   Tooltip  → saves under ONE unique key: 'tooltip_<pathhash>_<texthash>'
+    //              Each tooltip gets its own key; same-chapter tooltips never collide.
+    //   Main page → saves under canonical article key only.
+    //   Restore on main page: reads main key + ALL tooltip_ keys (merged by text dedup).
+    function _tooltipKey(tooltip) {
+        // Try known citation link classes first, then any content href anchor.
+        const link = tooltip.querySelector('a.bibleCitation, a.publicationCitation, a[class*="pub-"]')
+                  || Array.from(tooltip.querySelectorAll('a[href]')).find(a => {
+                         const h = a.getAttribute('href') || '';
+                         return h && !h.startsWith('#') && !h.startsWith('javascript') && h.includes('/');
+                     });
+        if (link) {
+            const href = link.getAttribute('href');
+            if (href) {
+                // Include the full href (path + hash fragment) so that tooltips
+                // for different verses in the same chapter get different keys.
+                const resolved = new URL(href, window.location.href);
+                const fullKey = resolved.pathname + resolved.hash;
+                return 'tooltip_' + simpleHash(fullKey);
+            }
+        }
+        // Fallback: hash the tooltip header text only (more stable than full textContent
+        // which changes when study mode converts ruby elements).
+        const header = tooltip.querySelector('.tooltipHeader, .tooltipTitle, h1, h2');
+        const stable = header ? header.textContent.trim() : tooltip.textContent.trim().substring(0, 200);
+        return 'tooltip_' + simpleHash(stable);
+    }
+
     function getKeys(container) {
-        const tooltip = container.closest('.tooltip, .tooltipContainer');
+        // container may be a detached node (tooltip already removed from DOM)
+        // so we cache the key at call time, not walk the live DOM
+        const tooltip = container.closest
+            ? (container.classList && (container.classList.contains('tooltip') || container.classList.contains('tooltipContainer'))
+                ? container
+                : container.closest('.tooltip, .tooltipContainer'))
+            : null;
         if (tooltip) {
-            const link = tooltip.querySelector('a.bibleCitation, a.publicationCitation, a.pub-');
+            // Try known citation link classes first, then fall back to ANY anchor
+            // with an href so that footnote/glossary/article tooltips (which may
+            // use plain <a href="..."> without a special class) also get a stable
+            // URL-derived key rather than an unstable text-content hash.
+            const link = tooltip.querySelector('a.bibleCitation, a.publicationCitation, a[class*="pub-"]')
+                      || Array.from(tooltip.querySelectorAll('a[href]')).find(a => {
+                             const h = a.getAttribute('href') || '';
+                             return h && !h.startsWith('#') && !h.startsWith('javascript') && h.includes('/');
+                         });
             if (link) {
                 const href = link.getAttribute('href');
                 if (href) {
-                    const abs = new URL(href, window.location.href).pathname;
-                    const ar = extractArticleRef(abs) || extractScriptureRef(abs)
-                            || extractArticleRef(href) || extractScriptureRef(href);
-                    if (ar) return [ar, 'tooltip_' + ar];
-                    const rawKey = abs.split('#')[0];
-                    return [rawKey, 'tooltip_' + rawKey];
+                    const resolved = new URL(href, window.location.href);
+                    const fullKey = resolved.pathname + resolved.hash;
+                    const verseKey = 'tooltip_' + simpleHash(fullKey);
+                    const ar = extractArticleRef(resolved.pathname) || extractScriptureRef(resolved.pathname);
+                    if (ar) return [ar, verseKey];
+                    return [verseKey];
                 }
             }
-            return ['tooltip_' + simpleHash(tooltip.textContent.trim().substring(0, 500))];
+            const header = tooltip.querySelector('.tooltipHeader, .tooltipTitle, h1, h2');
+            const stable = header ? header.textContent.trim() : tooltip.textContent.trim().substring(0, 200);
+            return ['tooltip_' + simpleHash(stable)];
         }
         const path = window.location.pathname;
         const ar = extractArticleRef(path) || extractScriptureRef(path) || path;
-        return [ar];  // main article: one key only, no tooltip mirror needed
+        return [ar];
+    }
+
+    // Returns all tooltip_ keys in DB. Used by restoreHighlights on main page
+    // so highlights made in tooltips also appear on the bible page.
+    function getRelatedTooltipKeys(db) {
+        return new Promise(resolve => {
+            try {
+                const tx = db.transaction(['highlights'], 'readonly');
+                const req = tx.objectStore('highlights').getAllKeys();
+                req.onsuccess = () => resolve((req.result || []).filter(k => typeof k === 'string' && k.startsWith('tooltip_')));
+                req.onerror = () => resolve([]);
+            } catch(e) { resolve([]); }
+        });
     }
 
     // ── Save / restore highlights ──
@@ -2784,7 +3595,10 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         }
         highlightGroups.forEach((spanGroup, id) => {
             if (spanGroup.length === 0) return;
-            highlights.push({ id, color: spanGroup[0].style.backgroundColor, text: getTextBetweenSpans(spanGroup) });
+            const anySpanInGroup = spanGroup[0];
+            const pidEl = anySpanInGroup.closest('[data-pid]');
+            const pid = pidEl ? pidEl.getAttribute('data-pid') : null;
+            highlights.push({ id, color: spanGroup[0].style.backgroundColor, text: getTextBetweenSpans(spanGroup), pid });
         });
         const transaction = db.transaction(['highlights'], 'readwrite');
         const store = transaction.objectStore('highlights');
@@ -2798,24 +3612,25 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     function restoreHighlights(container) {
         container = container || document.body;
         if (!db) return;
-        // Don't restore if highlights already exist — prevents duplicate IDs from
-        // multiple restore calls (init timeouts, MutationObserver, compact mode switch)
         if (container.querySelector('span[data-highlight-id]')) return;
 
+        const isMainPage = !container.closest('.tooltip, .tooltipContainer');
         const keys = getKeys(container);
-        const transaction = db.transaction(['highlights'], 'readonly');
-        const store = transaction.objectStore('highlights');
-        const allHighlights = new Map();
-        let processed = 0;
 
-        keys.forEach(id => {
-            const request = store.get(id);
-            request.onsuccess = () => {
-                processed++;
-                const result = request.result;
-                if (result && result.highlights)
-                    result.highlights.forEach(h => { if (!allHighlights.has(h.text)) allHighlights.set(h.text, h); });
-                if (processed === keys.length) {
+        const loadAndRestore = (allKeys) => {
+            if (allKeys.length === 0) return;
+            const allHighlights = new Map();
+            let processed = 0;
+            const transaction = db.transaction(['highlights'], 'readonly');
+            const store = transaction.objectStore('highlights');
+            allKeys.forEach(id => {
+                const request = store.get(id);
+                request.onsuccess = () => {
+                    processed++;
+                    const result = request.result;
+                    if (result && result.highlights)
+                        result.highlights.forEach(h => { if (!allHighlights.has(h.text)) allHighlights.set(h.text, h); });
+                    if (processed === allKeys.length) {
                     const highlights = Array.from(allHighlights.values());
                     if (highlights.length === 0) return;
                     function pinyinFilter(node) {
@@ -2839,6 +3654,74 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                         const fullText = getTextContent(element);
                         const index = fullText.indexOf(searchText);
                         if (index === -1) return false;
+
+                        // ── Ruby-page restore: match rubies by position-anchored CJK text ──
+                        const allRubies = Array.from(element.querySelectorAll('ruby'));
+                        const cjkRe = /[^\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3000-\u303f\uff00-\uffef]/g;
+                        const searchCJK = searchText.replace(cjkRe, '');
+                        if (allRubies.length > 0 && searchCJK.length > 0) {
+                                // Walk all rubies, track both their fullText position and
+                                // their CJK index, so we find the match anchored to the
+                                // correct position in the paragraph — not just first CJK hit.
+                                let fullPos = 0, cjkPos = 0;
+                                let startIdx = -1, endIdx = -1;
+                                let cjkMatchStart = -1;
+
+                                // Build per-ruby fullText positions using the same walker
+                                const rubyFullPos = [];
+                                const rubyData = [];
+                                const walker2 = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, pfo);
+                                let pos = 0;
+                                const textNodes = [];
+                                while (walker2.nextNode()) textNodes.push({ node: walker2.currentNode, start: pos, len: walker2.currentNode.textContent.length, end: pos += walker2.currentNode.textContent.length });
+                                // Not used directly — instead compute ruby start positions
+                                // by finding which text nodes fall inside each ruby.
+
+                                // Simpler: record fullText start index of each ruby's RB text.
+                                // We rebuild fullText char-by-char to get ruby positions.
+                                let cursor = 0;
+                                const rubyStarts = [];
+                                const rubyTexts = [];
+                                for (let i = 0; i < allRubies.length; i++) {
+                                    const rbText = allRubies[i].querySelector('rb')?.textContent || '';
+                                    const cjkOnly = rbText.replace(cjkRe, '');
+                                    rubyTexts.push(cjkOnly);
+                                    // Find this ruby's position in fullText by scanning forward
+                                    const rbFull = rbText;
+                                    const pos2 = fullText.indexOf(rbFull, cursor);
+                                    rubyStarts.push(pos2 === -1 ? cursor : pos2);
+                                    if (pos2 !== -1) cursor = pos2 + rbFull.length;
+                                }
+
+                                // Now find which rubies fall in [index, index+searchText.length)
+                                const searchEnd = index + searchText.length;
+                                const targets = [];
+                                const highlightID = 'hl_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                                for (let i = 0; i < allRubies.length; i++) {
+                                    const rStart = rubyStarts[i];
+                                    const rbText = allRubies[i].querySelector('rb')?.textContent || '';
+                                    const rEnd = rStart + rbText.length;
+                                    // Ruby overlaps the search range
+                                    if (rEnd > index && rStart < searchEnd) {
+                                        if (!allRubies[i].closest('span[data-highlight-id]'))
+                                            targets.push(allRubies[i]);
+                                    }
+                                }
+                                if (targets.length) {
+                                    targets.forEach(ruby => {
+                                        const span = document.createElement('span');
+                                        span.style.backgroundColor = highlight.color;
+                                        span.style.color = 'black';
+                                        span.setAttribute('data-highlight-id', highlightID);
+                                        addRemoveListener(span);
+                                        ruby.parentNode.replaceChild(span, ruby);
+                                        span.appendChild(ruby);
+                                    });
+                                    return true;
+                                }
+                            }
+
+                        // ── Plain text restore (compact mode / no rubies) ──
                         const range = document.createRange();
                         const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, pfo);
                         let currentLength = 0, startNode = null, startOffset = 0, endNode = null, endOffset = 0;
@@ -2855,18 +3738,35 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                         return false;
                     }
                     const articleContainer = container.querySelector('#article, .article, #content, .synopsis') || container;
-                    const paragraphs = Array.from(articleContainer.querySelectorAll('div[data-pid], p, div.v, div.sb, div.sc, li, div.du, div.dc, h1, h2, h3, h4'))
+                    const headings = Array.from(articleContainer.querySelectorAll('h1, h2, h3, h4'))
                         .filter(el => !el.closest('.documentNavigation, .noTooltips'));
+                    // span.v is added for tooltip verse content (WOL tooltips use <span class="v">
+                    // not <div data-pid> or <p>, so without this tooltips never restore highlights)
+                    const bodies = Array.from(articleContainer.querySelectorAll('div[data-pid], p, div.v, span.v, div.sb, div.sc, li, div.du, div.dc'))
+                        .filter(el => !el.closest('.documentNavigation, .noTooltips'));
+                    // For tooltips with no matching block elements, fall back to the container itself
+                    const paragraphs = [...headings, ...bodies];
+                    const searchTargets = paragraphs.length > 0 ? paragraphs : [articleContainer];
                     highlights.forEach(highlight => {
                         if (container.querySelector(`span[data-highlight-id="${highlight.id}"]`)) return;
-                        for (let i = 0; i < paragraphs.length; i++) {
-                            if (paragraphs[i].querySelector(`span[data-highlight-id="${highlight.id}"]`)) continue;
-                            if (highlightTextInElement(paragraphs[i], highlight.text, highlight)) break;
+                        // If we have a pid, try that paragraph first before falling back
+                        if (highlight.pid) {
+                            const pidEl = container.querySelector(`[data-pid="${highlight.pid}"]`);
+                            if (pidEl && !pidEl.querySelector(`span[data-highlight-id="${highlight.id}"]`)) {
+                                if (highlightTextInElement(pidEl, highlight.text, highlight)) return;
+                            }
+                        }
+                        for (let i = 0; i < searchTargets.length; i++) {
+                            if (searchTargets[i].querySelector(`span[data-highlight-id="${highlight.id}"]`)) continue;
+                            if (highlightTextInElement(searchTargets[i], highlight.text, highlight)) break;
                         }
                     });
                 }
-            };
-        });
+                };
+            });
+        };
+
+        loadAndRestore(keys);
     }
 
     // ── Remove highlight listener ──
@@ -2891,9 +3791,19 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         span.addEventListener('mouseup', function() { if (mousePressTimer) { clearTimeout(mousePressTimer); mousePressTimer = null; } });
         span.addEventListener('mouseleave', function() { if (mousePressTimer) { clearTimeout(mousePressTimer); mousePressTimer = null; } });
         let touchPressTimer = null;
-        span.addEventListener('touchstart', function() { touchPressTimer = setTimeout(() => { touchPressTimer = null; removeHighlight(span); }, 600); }, { passive: true });
-        span.addEventListener('touchend', function() { if (touchPressTimer) { clearTimeout(touchPressTimer); touchPressTimer = null; } });
-        span.addEventListener('touchcancel', function() { if (touchPressTimer) { clearTimeout(touchPressTimer); touchPressTimer = null; } });
+        let touchPressStart = 0;
+        span.addEventListener('touchstart', function(e) {
+            touchPressStart = Date.now();
+            touchPressTimer = setTimeout(() => {
+                touchPressTimer = null;
+                // Guard against double-tap: ruby's stopPropagation can block the
+                // touchend cancellation below, so verify the hold was genuinely long.
+                if (Date.now() - touchPressStart >= 500) removeHighlight(span);
+            }, 600);
+        }, { passive: true });
+        // Capture phase so ruby's stopPropagation cannot block timer cancellation.
+        span.addEventListener('touchend', function() { if (touchPressTimer) { clearTimeout(touchPressTimer); touchPressTimer = null; } }, { capture: true });
+        span.addEventListener('touchcancel', function() { if (touchPressTimer) { clearTimeout(touchPressTimer); touchPressTimer = null; } }, { capture: true });
         span.addEventListener('touchmove', function() { if (touchPressTimer) { clearTimeout(touchPressTimer); touchPressTimer = null; } }, { passive: true });
     }
 
@@ -2901,16 +3811,21 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     let currentRange = null;
     document.addEventListener('selectionchange', function() {
         const sel = window.getSelection();
-        if (!sel.rangeCount || sel.isCollapsed) return;
+        if (!sel || !sel.rangeCount || sel.isCollapsed) return;
+        let merged;
         if (sel.rangeCount === 1) {
-            currentRange = sel.getRangeAt(0).cloneRange();
+            merged = sel.getRangeAt(0).cloneRange();
         } else {
             const first = sel.getRangeAt(0), last = sel.getRangeAt(sel.rangeCount - 1);
-            const merged = document.createRange();
+            merged = document.createRange();
             merged.setStart(first.startContainer, first.startOffset);
             merged.setEnd(last.endContainer, last.endOffset);
-            currentRange = merged;
         }
+        if (merged.collapsed) return;
+        try { if (!merged.startContainer.isConnected || !merged.endContainer.isConnected) return; } catch(e) { return; }
+        currentRange = merged;
+        window.__savedHighlightRange = merged.cloneRange();
+        window.__savedHighlightText = sel.toString();
     });
 
     // ── Ruby-aware mouse selection ──
@@ -2957,28 +3872,27 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     const hlColors = ['#fff176','#b9f6ca','#ffe0b2','#ead5f5'];
 
     function snapRangeToRubyBoundaries(range) {
-        let startNode = range.startContainer, endNode = range.endContainer;
-
-        let startRuby = startNode;
-        while (startRuby && startRuby.tagName !== 'RUBY') startRuby = startRuby.parentElement;
-
-        let endRuby = endNode;
-        while (endRuby && endRuby.tagName !== 'RUBY') endRuby = endRuby.parentElement;
-
+        // Snap start: if the range starts inside a ruby, move start to before that ruby
+        let node = range.startContainer;
+        let startRuby = null;
+        while (node && node !== document.body) {
+            if (node.tagName === 'RUBY') { startRuby = node; break; }
+            node = node.parentElement;
+        }
         if (startRuby) {
-            const startsAtRubyBeginning = (
-                range.startContainer === startRuby ||
-                (range.startContainer.nodeType === Node.TEXT_NODE && range.startOffset === 0 &&
-                range.startContainer.parentElement === startRuby.querySelector('rb'))
-            );
-            if (startsAtRubyBeginning) {
-                range.setStartBefore(startRuby);
-            } else {
-                range.setStartAfter(startRuby);
-            }
+            range.setStartBefore(startRuby);
         }
 
-        if (endRuby) range.setEndAfter(endRuby);
+        // Snap end: if the range ends inside a ruby, move end to after that ruby
+        node = range.endContainer;
+        let endRuby = null;
+        while (node && node !== document.body) {
+            if (node.tagName === 'RUBY') { endRuby = node; break; }
+            node = node.parentElement;
+        }
+        if (endRuby) {
+            range.setEndAfter(endRuby);
+        }
     }
 
     function smartHighlight(range, color, skipSave) {
@@ -3034,58 +3948,116 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             span.appendChild(textNode);
         }
 
+        // Capture save container from range NOW before any async work
+        const _saveContainer = (() => {
+            try {
+                const anc = range.startContainer;
+                const el = anc.nodeType === Node.ELEMENT_NODE ? anc : anc.parentElement;
+                return el.closest('.tooltip, .tooltipContainer') || document.body;
+            } catch(e) { return document.body; }
+        })();
+
         if (rubyElems.length) {
-            const liveRubies = [], liveTextNodes = [];
-            const startEl = (range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer);
-            const endEl = (range.endContainer.nodeType === Node.TEXT_NODE ? range.endContainer.parentElement : range.endContainer);
-            let para = startEl.closest('p, div.v, div.sb, div.sc, li, div.du, div.dc, h1, h2, h3, h4') || startEl.parentElement;
-            const endPara = endEl.closest('p, div.v, div.sb, div.sc, li, div.du, div.dc, h1, h2, h3, h4') || endEl.parentElement;
-            if (para && endPara && para !== endPara) { para = para.parentElement; while (para && !para.contains(endPara)) para = para.parentElement; }
-            if (para) {
-                const nodeWalker = document.createTreeWalker(para, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
-                while (nodeWalker.nextNode()) {
-                    const node = nodeWalker.currentNode;
-                    try {
-                        const nr = document.createRange(); nr.selectNode(node);
-                        if (nr.compareBoundaryPoints(Range.START_TO_END, range) <= 0) continue;
-                        if (nr.compareBoundaryPoints(Range.END_TO_START, range) >= 0) continue;
-                    } catch(e) { continue; }
-                    if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'RUBY') {
-                        liveRubies.push(node);
-                    } else if (node.nodeType === Node.TEXT_NODE) {
-                        let insideRuby = false, insideHighlight = false;
-                        let anc = node.parentElement;
-                        while (anc && anc !== para) {
-                            if (anc.tagName === 'RUBY') { insideRuby = true; break; }
-                            if (anc.getAttribute('data-highlight-id')) { insideHighlight = true; break; }
-                            anc = anc.parentElement;
+            const liveTargets = [];
+
+            const rangeAnchor = range.startContainer.nodeType === Node.TEXT_NODE
+                ? range.startContainer.parentElement : range.startContainer;
+            const scopeRoot = (() => {
+                const tt = rangeAnchor && rangeAnchor.closest('.tooltip, .tooltipContainer');
+                if (tt) return tt;
+                return document.querySelector('#article, .article, .mainContent') || document.body;
+            })();
+            const allRubies = Array.from(scopeRoot.querySelectorAll('ruby'));
+            if (!allRubies.length) return;
+
+            const rawSel = window.__savedHighlightText || window.getSelection()?.toString() || '';
+            const selCJK = rawSel.replace(/[^\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/g, '');
+
+            if (selCJK.length > 0) {
+                const rubyCJK = allRubies.map(rb =>
+                    (rb.querySelector('rb')?.textContent || rb.textContent || '')
+                        .replace(/[^\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/g, '')
+                );
+                const sel = window.getSelection();
+                const activeRange = (sel && sel.rangeCount && !sel.isCollapsed)
+                    ? sel.getRangeAt(0).cloneRange()
+                    : (window.__savedHighlightRange || range);
+                let anchorRubyIdx = -1;
+                if (activeRange && !activeRange.collapsed) {
+                    for (let i = 0; i < allRubies.length; i++) {
+                        try {
+                            const rr = document.createRange(); rr.selectNode(allRubies[i]);
+                            const endsBeforeStart = rr.compareBoundaryPoints(Range.END_TO_START, activeRange) >= 0;
+                            const startsAfterEnd  = rr.compareBoundaryPoints(Range.START_TO_END, activeRange) <= 0;
+                            if (!endsBeforeStart && !startsAfterEnd) { anchorRubyIdx = i; break; }
+                        } catch(e) {}
+                    }
+                }
+                let searchFromCJK = 0;
+                if (anchorRubyIdx > 0) {
+                    for (let i = 0; i < anchorRubyIdx; i++) searchFromCJK += rubyCJK[i].length;
+                }
+                const fullCJK = rubyCJK.join('');
+                const matchPos = fullCJK.indexOf(selCJK, searchFromCJK);
+                if (matchPos !== -1) {
+                    let charCount = 0, startIdx = -1, endIdx = -1;
+                    for (let i = 0; i < allRubies.length; i++) {
+                        const len = rubyCJK[i].length;
+                        if (startIdx === -1 && charCount + len > matchPos) startIdx = i;
+                        if (charCount + len >= matchPos + selCJK.length) { endIdx = i; break; }
+                        charCount += len;
+                    }
+                    if (startIdx !== -1 && endIdx !== -1) {
+                        for (let i = startIdx; i <= endIdx; i++) {
+                            if (!allRubies[i].closest('span[data-highlight-id]'))
+                                liveTargets.push(allRubies[i]);
                         }
-                        if (!insideRuby && !insideHighlight && node.textContent.trim() !== '' && !isFootnoteMarker(node) && !isReferenceSymbol(node)) {
-                        liveTextNodes.push(node);
                     }
                 }
             }
-            function makeHlSpan() {
-                const span = document.createElement('span');
-                span.style.backgroundColor = color; span.style.color = 'black';
-                span.setAttribute('data-highlight-id', highlightID);
-                addRemoveListener(span); return span;
-            }
-            liveRubies.forEach(ruby => {
-                if (ruby.closest('span[data-highlight-id]')) return;
-                const span = makeHlSpan(); ruby.parentNode.replaceChild(span, ruby); span.appendChild(ruby);
-            });
-            liveTextNodes.forEach(n => {
-                if (n.parentNode && !n.parentNode.getAttribute('data-highlight-id')) {
-                    const span = makeHlSpan(); n.parentNode.replaceChild(span, n); span.appendChild(n);
+
+            // Fallback: geometry (restore path, or when CJK match yields nothing)
+            if (liveTargets.length === 0) {
+                const r = (() => {
+                    const sel = window.getSelection();
+                    return (sel && sel.rangeCount && !sel.isCollapsed)
+                        ? sel.getRangeAt(0).cloneRange()
+                        : (window.__savedHighlightRange || range);
+                })();
+                const testRange = (r && !r.collapsed) ? r : range;
+                if (testRange && !testRange.collapsed) {
+                    allRubies.forEach(ruby => {
+                        if (ruby.closest('span[data-highlight-id]')) return;
+                        try {
+                            const rr = document.createRange(); rr.selectNode(ruby);
+                            if (rr.compareBoundaryPoints(Range.END_TO_START, testRange) > 0 &&
+                                rr.compareBoundaryPoints(Range.START_TO_END, testRange) <= 0) {
+                                liveTargets.push(ruby);
+                            }
+                        } catch(e) {}
+                    });
                 }
-            });
+            }
+
+            if (liveTargets.length) {
+                function makeHlSpan() {
+                    const span = document.createElement('span');
+                    span.style.backgroundColor = color; span.style.color = 'black';
+                    span.setAttribute('data-highlight-id', highlightID);
+                    addRemoveListener(span); return span;
+                }
+                liveTargets.forEach(ruby => {
+                    if (ruby.closest('span[data-highlight-id]')) return;
+                    const span = makeHlSpan();
+                    ruby.parentNode.replaceChild(span, ruby);
+                    span.appendChild(ruby);
+                });
             }
         } else {
             const startEl2 = (range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer);
             const endEl2 = (range.endContainer.nodeType === Node.TEXT_NODE ? range.endContainer.parentElement : range.endContainer);
-            let para2 = startEl2.closest('p, div.v, div.sb, div.sc, li, div.du, div.dc, h1, h2, h3, h4') || startEl2.parentElement;
-            const endPara2 = endEl2.closest('p, div.v, div.sb, div.sc, li, div.du, div.dc, h1, h2, h3, h4') || endEl2.parentElement;
+            let para2 = startEl2.closest('p, div.v, span.v, div.sb, div.sc, li, div.du, div.dc, h1, h2, h3, h4') || startEl2.parentElement;
+            const endPara2 = endEl2.closest('p, div.v, span.v, div.sb, div.sc, li, div.du, div.dc, h1, h2, h3, h4') || endEl2.parentElement;
             if (para2 && endPara2 && para2 !== endPara2) { para2 = para2.parentElement; while (para2 && !para2.contains(endPara2)) para2 = para2.parentElement; }
             const isCompact = para2 && para2.querySelector('.wol-char-wrap');
             if (isCompact) {
@@ -3150,9 +4122,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             }
         }
         if (!skipSave) {
-            const anySpan = document.querySelector(`span[data-highlight-id="${highlightID}"]`);
-            const container = (anySpan && anySpan.closest('.tooltip, .tooltipContainer')) || document.body;
-            debouncedSave(container);
+            debouncedSave(_saveContainer);
         }
     }
 
@@ -3185,7 +4155,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
 
         const palette = document.createElement('div');
         palette.id = 'wol_hl_float_palette';
-        palette.style.cssText = 'position:fixed;z-index:500;background:#f0f0f0;border:1px solid #d0d0d0;border-radius:8px;padding:0 10px;height:44px;display:flex;align-items:center;gap:13px;box-shadow:0 2px 10px rgba(0,0,0,0.12);user-select:none;-webkit-user-select:none;touch-action:none;cursor:grab;top:56px;left:10px;';
+        palette.style.cssText = 'position:fixed;z-index:500;background:#f0f0f0;border:1px solid #d0d0d0;border-radius:8px;padding:0 10px;height:44px;display:flex;align-items:center;gap:13px;box-shadow:0 2px 10px rgba(0,0,0,0.12);user-select:none;-webkit-user-select:none;touch-action:manipulation;cursor:grab;top:56px;left:10px;';
         const handle = document.createElement('div');
         handle.style.cssText = 'color:#bbb;font-size:15px;cursor:grab;padding:0 2px;line-height:1;flex-shrink:0;';
         handle.textContent = '⠿'; handle.title = 'Drag to move';
@@ -3256,18 +4226,34 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     function hideFloatingPalette() {
         const p = document.getElementById('wol_hl_float_palette');
         if (p) p.remove();
-
     }
 
     function applyHighlightColor(c) {
-        if (!currentRange) { alert(t('selectFirst')); return; }
+        function validRange(r) {
+            if (!r || r.collapsed) return null;
+            try { if (!r.startContainer.isConnected || !r.endContainer.isConnected) return null; } catch(e) { return null; }
+            return r;
+        }
+        let range = validRange(currentRange) || validRange(window.__savedHighlightRange);
+        if (!range) {
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount && !sel.isCollapsed) range = sel.getRangeAt(0).cloneRange();
+        }
+        if (!range) { alert(t('selectFirst')); return; }
         if (_hlCooldown) return;
         _hlCooldown = true;
-        setTimeout(() => { _hlCooldown = false; }, 600);
-        const rangeToHighlight = currentRange.cloneRange();
+        const _cooldownTimer = setTimeout(() => { _hlCooldown = false; }, 600);
+        const rangeToHighlight = range.cloneRange();
         currentRange = null;
+        window.__savedHighlightRange = null;
         window.getSelection && window.getSelection().removeAllRanges();
-        try { smartHighlight(rangeToHighlight, c); } catch(err) { console.warn('Highlight error:', err); }
+        try {
+            smartHighlight(rangeToHighlight, c);
+        } catch(err) {
+            console.warn('Highlight error:', err);
+            clearTimeout(_cooldownTimer);
+            _hlCooldown = false;
+        }
     }
 
     function buildHighlightIconBtn() {
@@ -3447,9 +4433,14 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         if (!tooltipHeader) return;
         tooltip.querySelectorAll('a.bibleCitation, a.publicationCitation, a[class*="pub-"]').forEach(link => {
             link.addEventListener('click', () => {
-                tooltip.querySelectorAll('span[data-highlight-id]').forEach(span => unwrapSpan(span));
-                const container = tooltip.closest('.tooltipContainer, .tooltip') || tooltip;
-                container.style.display = 'none'; container.remove();
+                // Save highlights synchronously before unwrapping.
+                // Pass the tooltip container (which has the pub- link needed by
+                // getKeys) not a child element — so getKeys() finds the correct key
+                // even after the node is detached.
+                const tooltipRoot = tooltip.closest('.tooltipContainer, .tooltip') || tooltip;
+                if (tooltipRoot.querySelector('span[data-highlight-id]')) saveHighlights(tooltipRoot);
+                tooltipRoot.querySelectorAll('span[data-highlight-id]').forEach(span => unwrapSpan(span));
+                tooltipRoot.style.display = 'none'; tooltipRoot.remove();
             }, { once: true });
         });
         tooltipHeader.style.cssText = 'display:flex !important;align-items:center !important;justify-content:flex-start !important;flex-wrap:nowrap !important;gap:0 !important;';
@@ -3478,85 +4469,312 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     }
 
     // ── PhotoSwipe alt text ──
-    const imageAltTextMap = new Map();
-    let pswpActive = false, currentAltDiv = null;
+    (function initPhotoSwipeAltText() {
+        let pswpActive = false;
+        let _activePswp = null;
 
-    function resetPhotoSwipeState(pswp, imgObserver, closeObserver) {
-        if (imgObserver) imgObserver.disconnect();
-        if (closeObserver) closeObserver.disconnect();
-        pswpActive = false; currentAltDiv = null;
-        pswp.querySelectorAll('#pswp-alt-text-display').forEach(div => { div.style.opacity = '0'; setTimeout(() => div.remove(), 200); });
-    }
-    function handlePhotoSwipeOpen(pswp) {
-        resetPhotoSwipeState(pswp); pswpActive = true;
-        const altDiv = document.createElement('div'); altDiv.id = 'pswp-alt-text-display';
-        altDiv.style.cssText = 'position:absolute;left:12px;right:12px;background:rgba(0,0,0,0.85);color:#fff;padding:8px 12px;border-radius:6px;font-size:15px;line-height:1.5;text-align:left;max-width:calc(100% - 24px);z-index:10050;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;text-shadow:0 1px 3px rgba(0,0,0,0.9);pointer-events:auto;user-select:text;visibility:hidden;opacity:0;transition:opacity 0.2s ease;-webkit-transform:translate3d(0,0,0);backface-visibility:hidden;';
-        altDiv.addEventListener('click', e => { if (e.target === altDiv) altDiv.remove(); });
-        pswp.appendChild(altDiv); currentAltDiv = altDiv;
-        const container = pswp.querySelector('.pswp__container');
-        if (container) {
-            // Watch only childList (actual slide changes) — attribute/style mutations
-            // are triggered by mouse movement and cause constant flicker if observed.
-            const imgObserver = new MutationObserver(() => { if (pswpActive) displayAltText(pswp); });
-            imgObserver.observe(container, { childList: true, subtree: true });
-            const closeObserver = new MutationObserver(() => { if (!pswp.classList.contains('pswp--open')) resetPhotoSwipeState(pswp, imgObserver, closeObserver); });
-            closeObserver.observe(pswp, { attributes: true, attributeFilter: ['class'] });
+        function normalizeImageKey(src) {
+            try {
+                if (!src) return '';
+                const u = new URL(String(src), window.location.href);
+                return u.origin + u.pathname;
+            } catch(_) {}
+            return String(src || '').trim();
         }
-        displayAltText(pswp);
-    }
-    function displayAltText(pswp) {
-        if (!pswpActive) return;
-        const last = imageAltTextMap.get('lastClicked'); if (!last) return;
-        const altDiv = currentAltDiv || pswp.querySelector('#pswp-alt-text-display'); if (!altDiv) return;
-        const img = pswp.querySelector('.pswp__img:not(.pswp__img--placeholder)'); if (!img) return;
-        // Already showing this alt text — don't re-run and cause a visibility flicker.
-        if (altDiv.textContent === last.altText && altDiv.style.opacity === '1') return;
-        altDiv.textContent = last.altText;
-        const positionAndShow = () => {
-            if (!pswpActive || !img.offsetHeight) return;
-            const imgRect = img.getBoundingClientRect(), pswpRect = pswp.getBoundingClientRect();
-            const top = Math.max(imgRect.top - pswpRect.top - altDiv.offsetHeight - 10, 30);
-            altDiv.style.top = top + 'px'; altDiv.style.visibility = 'visible';
-            requestAnimationFrame(() => { altDiv.style.opacity = '1'; });
-        };
-        const waitForLayout = () => {
-            if (img.complete && img.naturalWidth > 0 && img.offsetHeight > 0) {
-                const container = pswp.querySelector('.pswp__container');
-                let fired = false;
-                const triggerPosition = () => { if (fired) return; fired = true; requestAnimationFrame(() => positionAndShow()); };
-                if (container) container.addEventListener('transitionend', triggerPosition, { once: true });
-                setTimeout(triggerPosition, 50);
-            } else { img.addEventListener('load', waitForLayout, { once: true }); }
-        };
-        waitForLayout();
-    }
-    function initPhotoSwipeAltText() {
-        document.addEventListener('click', function(e) {
-            const img = e.target.tagName === 'IMG' ? e.target : e.target.querySelector('img');
-            if (img && (img.alt || img.title)) imageAltTextMap.set('lastClicked', { altText: img.alt || img.title, timestamp: Date.now(), imgSrc: img.src || img.getAttribute('data-src') || '' });
-        }, true);
-        const observer = new MutationObserver((mutations) => {
-            mutations.forEach(m => {
-                if (m.type !== 'attributes' || m.attributeName !== 'class') return;
-                const pswp = m.target;
-                if (!pswp.classList.contains('pswp')) return;
-                const wasOpen = m.oldValue && m.oldValue.split(' ').includes('pswp--open');
-                const isOpen = pswp.classList.contains('pswp--open');
-                // Only fire on the transition TO open, not on every subsequent class tweak
-                if (isOpen && !wasOpen) handlePhotoSwipeOpen(pswp);
-            });
+
+        function resolveAltText(img) {
+            if (!img) return '';
+            const direct = (img.getAttribute('alt') || img.getAttribute('title') || '').trim();
+            if (direct) return direct;
+            const keys = [
+                normalizeImageKey(img.currentSrc || ''),
+                normalizeImageKey(img.getAttribute('src') || ''),
+                normalizeImageKey(img.getAttribute('data-img-small-src') || '')
+            ].filter(Boolean);
+            if (!keys.length) return '';
+            for (const c of document.querySelectorAll('img[alt], img[title]')) {
+                if (c.closest('.pswp')) continue;
+                const ck = [
+                    normalizeImageKey(c.currentSrc || ''),
+                    normalizeImageKey(c.getAttribute('src') || ''),
+                    normalizeImageKey(c.getAttribute('data-img-small-src') || '')
+                ];
+                if (ck.some(k => k && keys.includes(k))) {
+                    const text = (c.getAttribute('alt') || c.getAttribute('title') || '').trim();
+                    if (text) return text;
+                }
+            }
+            return '';
+        }
+
+        function getIntersectionArea(a, b) {
+            const xOverlap = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
+            const yOverlap = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+            return xOverlap * yOverlap;
+        }
+
+        function getCurrentImg(pswp) {
+            const activeItem = pswp.querySelector('.pswp__item.pswp__item--active, .pswp__item.pswp__item--current');
+            if (activeItem) {
+                const activeImg = activeItem.querySelector('.pswp__img:not(.pswp__img--placeholder)');
+                if (activeImg && activeImg.naturalWidth > 0) return activeImg;
+            }
+            const imgs = Array.from(pswp.querySelectorAll('.pswp__img:not(.pswp__img--placeholder)'));
+            if (!imgs.length) return null;
+            const pswpRect = pswp.getBoundingClientRect();
+            let best = null;
+            let bestArea = 0;
+            for (const img of imgs) {
+                const r = img.getBoundingClientRect();
+                if (r.width < 20 || r.height < 20) continue;
+                const area = getIntersectionArea(r, pswpRect);
+                if (area > bestArea) {
+                    bestArea = area;
+                    best = img;
+                }
+            }
+            if (best) return best;
+            return imgs[0];
+        }
+
+        function getOrCreateOverlay(pswp) {
+            let altDiv = pswp.querySelector('#pswp-alt-text-display');
+            if (altDiv) return altDiv;
+            altDiv = document.createElement('div');
+            altDiv.id = 'pswp-alt-text-display';
+            altDiv.style.cssText = [
+                'position:absolute',
+                'left:12px', 'right:12px',
+                'background:rgba(0,0,0,0.85)',
+                'color:#fff',
+                'padding:8px 12px',
+                'border-radius:6px',
+                'font-size:15px',
+                'line-height:1.5',
+                'text-align:left',
+                'max-width:calc(100% - 24px)',
+                'z-index:10050',
+                'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif',
+                'text-shadow:0 1px 3px rgba(0,0,0,0.9)',
+                'pointer-events:auto',
+                'user-select:text',
+                'visibility:hidden',
+                'opacity:0',
+                'transition:opacity 0.2s ease'
+            ].join(';');
+            pswp.appendChild(altDiv);
+            return altDiv;
+        }
+
+        function isImageFitSize(pswp, img) {
+            if (!img) return false;
+            const imgRect = img.getBoundingClientRect();
+            const pswpRect = pswp.getBoundingClientRect();
+            if (imgRect.width <= 0 || imgRect.height <= 0 || pswpRect.width <= 0 || pswpRect.height <= 0) return false;
+            const widthRatio = imgRect.width / pswpRect.width;
+            const heightRatio = imgRect.height / pswpRect.height;
+            return Math.max(widthRatio, heightRatio) <= 1.05;
+        }
+
+        function showOverlay(pswp) {
+            if (!pswpActive) return;
+            if (pswp._zoomDismissed || pswp._tapDismissed) return;
+            const img = getCurrentImg(pswp);
+            if (!img) return;
+            if (!isImageFitSize(pswp, img)) {
+                hideOverlay(pswp);
+                return;
+            }
+            const text = resolveAltText(img);
+            if (!text) { hideOverlay(pswp); return; }
+            const altDiv = getOrCreateOverlay(pswp);
+            const currIdx = window.pswp && window.pswp.currItem ? window.pswp.currItem.index : '?';
+            console.log(`[showOverlay] Index=${currIdx}, Src=${img.src.slice(-40)}, Text="${text.substring(0,30)}..."`);
+            const doPosition = () => {
+                if (!pswpActive) return;
+                altDiv.textContent = text;
+                altDiv.style.visibility = 'hidden';
+                altDiv.style.opacity = '0';
+                altDiv.style.top = '0px';
+                const overlayH = altDiv.offsetHeight;
+                const imgRect = img.getBoundingClientRect();
+                const pswpRect = pswp.getBoundingClientRect();
+                const topRelImg = imgRect.top - pswpRect.top - overlayH - 8;
+                const top = Math.max(topRelImg, 8);
+                altDiv.style.top = top + 'px';
+                altDiv.style.visibility = 'visible';
+                altDiv.style.opacity = '1';
+            };
+            altDiv.style.opacity = '0';
+            altDiv.style.visibility = 'hidden';
+            if (img.complete && img.naturalWidth > 0) {
+                setTimeout(doPosition, 50);
+            } else {
+                img.addEventListener('load', () => setTimeout(doPosition, 50), { once: true });
+            }
+        }
+
+        function hideOverlay(pswp) {
+            const altDiv = pswp.querySelector('#pswp-alt-text-display');
+            if (!altDiv) return;
+            altDiv.style.opacity = '0';
+            altDiv.style.visibility = 'hidden';
+        }
+
+        function scheduleShow(pswp, delay) {
+            clearTimeout(pswp._altTimer);
+            pswp._altTimer = setTimeout(() => showOverlay(pswp), delay);
+        }
+
+        function handlePSWPOpen(pswp) {
+            pswpActive = true;
+            _activePswp = pswp;
+
+            pswp.querySelectorAll('#pswp-alt-text-display').forEach(d => d.remove());
+
+            // Per-slide state — keyed by img src so each slide is independent
+            const dismissedSlides = new Set(); // srcs manually tap-dismissed
+            let isZoomed = false;
+            let lastImgSrc = null;
+            let lastTranslateX = null;
+            let swipeSettled = false;
+
+            // ── Zoom detection via touch/wheel events ──
+            pswp._onTouchMove = (e) => {
+                if (e.touches.length >= 2 && !isZoomed) {
+                    isZoomed = true;
+                    hideOverlay(pswp);
+                    clearTimeout(pswp._altTimer);
+                }
+            };
+            pswp._onWheel = (e) => {
+                if (e.ctrlKey || e.deltaY < 0) {
+                    isZoomed = true;
+                    hideOverlay(pswp);
+                    clearTimeout(pswp._altTimer);
+                }
+            };
+            pswp.addEventListener('touchmove', pswp._onTouchMove, { passive: true });
+            pswp.addEventListener('wheel', pswp._onWheel, { passive: true });
+
+            // ── Dismiss on tap of the overlay ──
+            pswp._altTapHandler = (e) => {
+                const altDiv = pswp.querySelector('#pswp-alt-text-display');
+                if (!altDiv) return;
+                if (!altDiv.contains(e.target) && e.target !== altDiv) return;
+                e.stopPropagation();
+                e.preventDefault();
+                const img = getCurrentImg(pswp);
+                if (img) dismissedSlides.add(img.src || img.currentSrc);
+                hideOverlay(pswp);
+            };
+            pswp.addEventListener('touchend', pswp._altTapHandler, { capture: true, passive: false });
+            pswp.addEventListener('click', pswp._altTapHandler, { capture: true });
+
+            const container = pswp.querySelector('.pswp__container');
+
+            // ── Single unified poll ──
+            clearInterval(pswp._altPollInterval);
+            pswp._altPollInterval = setInterval(() => {
+                if (!pswpActive) { clearInterval(pswp._altPollInterval); return; }
+
+                const currentImg = getCurrentImg(pswp);
+                const currentSrc = currentImg ? (currentImg.src || currentImg.currentSrc || '') : '';
+
+                // ── Slide change detection ──
+                if (currentSrc && currentSrc !== lastImgSrc) {
+                    lastImgSrc = currentSrc;
+                    isZoomed = false;
+                    swipeSettled = false;
+                    lastTranslateX = null;
+                }
+
+                // ── Zoom return detection (rendered width vs container width) ──
+                if (isZoomed && currentImg && currentImg.naturalWidth > 0) {
+                    const renderedW = currentImg.getBoundingClientRect().width;
+                    const pswpW = pswp.getBoundingClientRect().width;
+                    if (renderedW > 0 && pswpW > 0 && renderedW <= pswpW * 1.1) {
+                        isZoomed = false;
+                        if (!dismissedSlides.has(currentSrc)) scheduleShow(pswp, 300);
+                    }
+                }
+
+                // ── Swipe detection ──
+                if (!container) return;
+                const style = window.getComputedStyle(container);
+                const matrix = style.transform || style.webkitTransform;
+                const match = matrix && matrix.match(/matrix\([^,]+,[^,]+,[^,]+,[^,]+,([^,]+),/);
+                const tx = match ? parseFloat(match[1]) : null;
+                if (tx === null) return;
+                if (lastTranslateX === null) { lastTranslateX = tx; return; }
+                const delta = Math.abs(tx - lastTranslateX);
+                if (delta > 2) {
+                    swipeSettled = false;
+                    hideOverlay(pswp);
+                    clearTimeout(pswp._altTimer);
+                } else if (!swipeSettled) {
+                    swipeSettled = true;
+                    if (!isZoomed && !dismissedSlides.has(currentSrc)) scheduleShow(pswp, 150);
+                }
+                lastTranslateX = tx;
+            }, 50);
+
+            // Show on first open
+            let _firstShowAttempts = 0;
+            const _tryFirstShow = () => {
+                _firstShowAttempts++;
+                const img = getCurrentImg(pswp);
+                if (img && img.offsetHeight > 0) {
+                    lastImgSrc = img.src || img.currentSrc || '';
+                    scheduleShow(pswp, 50);
+                } else if (_firstShowAttempts < 20) {
+                    setTimeout(_tryFirstShow, 80);
+                }
+            };
+            setTimeout(_tryFirstShow, 100);
+        }
+
+        function handlePSWPClose(pswp) {
+            pswpActive = false;
+            _activePswp = null;
+            clearInterval(pswp._altPollInterval);
+            clearTimeout(pswp._altTimer);
+            if (pswp._altTapHandler) {
+                pswp.removeEventListener('touchend', pswp._altTapHandler, { capture: true });
+                pswp.removeEventListener('click', pswp._altTapHandler, { capture: true });
+                pswp._altTapHandler = null;
+            }
+            if (pswp._onTouchMove) { pswp.removeEventListener('touchmove', pswp._onTouchMove); pswp._onTouchMove = null; }
+            if (pswp._onWheel) { pswp.removeEventListener('wheel', pswp._onWheel); pswp._onWheel = null; }
+            pswp.querySelectorAll('#pswp-alt-text-display').forEach(d => d.remove());
+        }
+
+        new MutationObserver(mutations => {
+            for (const m of mutations) {
+                if (m.type !== 'attributes' || m.attributeName !== 'class') continue;
+                const el = m.target;
+                if (!el.classList.contains('pswp')) continue;
+                const wasOpen = m.oldValue && m.oldValue.includes('pswp--open');
+                const isOpen = el.classList.contains('pswp--open');
+                if (isOpen && !wasOpen) handlePSWPOpen(el);
+                else if (!isOpen && wasOpen) handlePSWPClose(el);
+            }
+        }).observe(document.body, {
+            subtree: true, attributes: true,
+            attributeFilter: ['class'], attributeOldValue: true
         });
-        observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'], attributeOldValue: true });
+
         const existing = document.querySelector('.pswp.pswp--open');
-        if (existing) handlePhotoSwipeOpen(existing);
-    }
-    initPhotoSwipeAltText();
+        if (existing) handlePSWPOpen(existing);
+    })();
 
     // Block qu collapse when palette is open
     ['pointerdown','mousedown','click'].forEach(evt => {
         document.addEventListener(evt, (e) => {
             if (!document.getElementById('wol_hl_float_palette')) return;
             if (e.target.closest('a')) return;
+            if (e.target.closest('.wol-ta-field, .wol-qu-toggle')) return;
+            if (e.target.closest('ruby, rb, .wol-char-wrap')) return;
             if (e.target.closest('p.qu')) e.stopImmediatePropagation();
         }, { capture: true });
     });
@@ -3568,10 +4786,38 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                 if (node.nodeType === Node.ELEMENT_NODE) {
                     const mode = getMode();
                     function processTooltip(t) {
-                        setTimeout(() => { restoreHighlights(t); addPaletteToTooltip(t); hideReferenceSymbolsInTooltip(t); }, 100);
+                        addPaletteToTooltip(t);
+                        hideReferenceSymbolsInTooltip(t);
                         if (mode === 'study') {
-                            setTimeout(() => { hideReferenceSymbolsInTooltip(t); const content = t.querySelector('.tooltipText, .tooltipContent') || t; applyModeToTooltip(content); }, 400);
+                            setTimeout(() => {
+                                hideReferenceSymbolsInTooltip(t);
+                                applyModeToTooltip(t);
+                            }, 400);
                         }
+                        // Restore highlights once tooltip content is fully loaded.
+                        // WOL loads verse content async — we must wait for ruby or
+                        // span.v elements to appear, not just the container div.
+                        // In study mode also wait for applyModeToTooltip (+400ms).
+                        const attemptRestore = (tries) => {
+                            if (t.querySelector('span[data-highlight-id]')) return;
+                            // Check for actual content. Tooltips with native pinyin have ruby
+                            // or span.v; compact study mode wraps produce .wol-char-wrap.
+                            // Plain CHS tooltips (no native pinyin markup) have neither —
+                            // detect them by the presence of any paragraph/block with text.
+                            const hasRichContent = t.querySelector('ruby, span.v, .wol-char-wrap');
+                            const hasPlainContent = !hasRichContent && (() => {
+                                const el = t.querySelector('p, div[data-pid], div.v, span.cl, li');
+                                return el && el.textContent.trim().length > 0;
+                            })();
+                            if (!hasRichContent && !hasPlainContent) {
+                                if (tries > 0) setTimeout(() => attemptRestore(tries - 1), 100);
+                                return;
+                            }
+                            restoreHighlights(t);
+                        };
+                        // Study mode: wait for applyModeToTooltip at +400ms too
+                        const restoreDelay = (getMode() === 'study') ? 520 : 150;
+                        setTimeout(() => attemptRestore(20), restoreDelay);
                     }
                     if (node.classList && (node.classList.contains('tooltip') || node.classList.contains('tooltipContainer'))) processTooltip(node);
                     node.querySelectorAll && node.querySelectorAll('.tooltip, .tooltipContainer').forEach(processTooltip);
@@ -3996,7 +5242,11 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
     }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
 
     // ── Reference symbol observer ──
-    const refObserver = new MutationObserver(() => { applySavedState(); attachSyncButton(); });
+    let _refObserverTimer = null;
+    const refObserver = new MutationObserver(() => {
+        if (_refObserverTimer) return;
+        _refObserverTimer = setTimeout(() => { _refObserverTimer = null; applySavedState(); attachSyncButton(); }, 200);
+    });
     refObserver.observe(document.body, { childList: true, subtree: true });
     applySavedState();
     attachSyncButton();
@@ -4306,6 +5556,11 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                     ta.removeAttribute('readonly');
                 }
             }).observe(ta, { attributes: true, attributeFilter: ['disabled', 'readonly'] });
+
+            // ── Bind pinyin handlers to any rubies inside the question paragraph ──
+            // Pass the question paragraph as root so only its rubies are scanned,
+            // not the entire document (which is expensive on 30-article pages).
+            attachClickHandlers(questionP);
         }
 
         function processAll(root) {
@@ -4535,10 +5790,11 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             document.body.classList.add('wol-study-mode');
             buildMenuHome();
             document.addEventListener('contextmenu', blockContextMenu, true);
-        // If playback was already enabled, activate study audio immediately
+        // If playback was already enabled, try to activate audio UI.
+        // enableStudyAudio() will no-op if the player isn't visible yet —
+        // the speedObserver will call it again once the player appears.
         if (getPlaybackEnabled()) {
             enableStudyAudio();
-            patchParLinksForAudio();
         }
             installBannerBlock();
             installSelectStartBlock();

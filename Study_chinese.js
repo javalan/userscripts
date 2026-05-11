@@ -511,7 +511,9 @@ const T = {
         sendFeedbackBtn:  { en: 'Send Feedback', ko: '피드백 보내기', ja: 'フィードバックを送る', es: 'Enviar comentarios' },
         sendFeedbackPrompt: { en: 'Send feedback or report a bug:', ko: '피드백을 보내거나 버그를 신고하세요:', ja: 'フィードバックを送るかバグを報告してください:', es: 'Envía comentarios o reporta un error:' },
         rateTitle:        { en: 'Rate this app', ko: '앱 평가하기', ja: 'アプリを評価', es: 'Calificar esta app' },
-        rateThankYou:     { en: 'Thank you for your feedback!', ko: '피드백 감사합니다!', ja: 'フィードバックありがとうございます！', es: '¡Gracias por tus comentarios!' },
+        rateThankYou:        { en: 'Thank you for your feedback!', ko: '피드백 감사합니다!', ja: 'フィードバックありがとうございます！', es: '¡Gracias por tus comentarios!' },
+        rateThankYouRating:  { en: 'Thank you for your rating!', ko: '평가해 주셔서 감사합니다!', ja: '評価ありがとうございます！', es: '¡Gracias por tu valoración!' },
+        rateInlineTitle:  { en: 'Rate this app', ko: '앱 평가하기', ja: 'アプリを評価', es: 'Calificar esta app' },
         cancelLabel:      { en: 'Cancel', ko: '취소', ja: 'キャンセル', es: 'Cancelar' },
         submitLabel:      { en: 'Submit', ko: '제출', ja: '送信', es: 'Enviar' },
         rateAppBtn:       { en: 'Rate this app', ko: '앱 평가하기', ja: 'アプリを評価', es: 'Calificar esta app' },
@@ -572,15 +574,23 @@ const T = {
         }
     }
 
+    function getBrowserLangCode() {
+        const l = (navigator.language || '').toLowerCase();
+        if (l.startsWith('ko')) return 'KO';
+        if (l.startsWith('ja')) return 'J';
+        if (l.startsWith('es')) return 'S';
+        return 'E';
+    }
+
     function sendRating(rating) {
-        _sendToEndpoint({ app: 'Study Chinese', type: 'rating', rating, userAgent: navigator.userAgent });
+        _sendToEndpoint({ app: 'Study Chinese', type: 'rating', rating, userAgent: navigator.userAgent, browserLang: getBrowserLangCode() });
     }
 
     function sendFeedback() {
         showFeedbackModal({
             title: t('sendFeedbackPrompt'),
             hasInput: true,
-            onSubmit: (msg) => _sendToEndpoint({ app: 'Study Chinese', type: 'feedback', message: msg, userAgent: navigator.userAgent })
+            onSubmit: (msg) => _sendToEndpoint({ app: 'Study Chinese', type: 'feedback', message: msg, userAgent: navigator.userAgent, browserLang: getBrowserLangCode() })
         });
     }
 
@@ -803,6 +813,10 @@ body.wol-study-mode:not(.wol-audio-active) #contextMenu { display: none !importa
     font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em;
     text-transform: uppercase; color: #999; margin-bottom: 5px;
 }
+@keyframes wol_rate_fadein {
+    from { opacity: 0; transform: translateY(3px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
 #wol_mode_panel .pp-radio-label {
     display: flex; align-items: center; gap: 10px;
     font-size: 15px; font-weight: 400; color: #1a1a1a;
@@ -989,6 +1003,74 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
 
     function getPanelOpenTime() { return safeWindow.__wolPanelOpenTime || 0; }
 
+    // ── Inline star rating (persistent via sessionStorage, no submit button) ──
+    let _rateSubmitted = !!sessionStorage.getItem('wol_rate_submitted');
+
+    function buildInlineRating(parent) {
+        const section = document.createElement('div');
+        section.className = 'pp-section';
+        section.style.cssText = 'padding:6px 0 10px 0;';
+
+        const titleEl = document.createElement('div');
+        titleEl.className = 'pp-section-title';
+        titleEl.style.cssText = 'padding:6px 14px 6px 14px;';
+        titleEl.textContent = t('rateInlineTitle');
+        section.appendChild(titleEl);
+
+        const body = document.createElement('div');
+        body.style.cssText = 'padding:0 14px;';
+        section.appendChild(body);
+
+        if (_rateSubmitted) {
+            const msg = document.createElement('div');
+            msg.textContent = t('rateThankYouRating');
+            msg.style.cssText = 'font-size:13px;color:#888;padding:2px 0 4px 0;text-align:center;';
+            body.appendChild(msg);
+        } else {
+            const starsRow = document.createElement('div');
+            starsRow.style.cssText = 'display:flex;gap:4px;align-items:center;justify-content:center;';
+
+            const starEls = [];
+            function renderStars(n) {
+                starEls.forEach((s, i) => {
+                    s.textContent = i < n ? '★' : '☆';
+                    s.style.color = i < n ? '#f5a623' : '#bbb';
+                });
+            }
+
+            for (let i = 1; i <= 5; i++) {
+                const star = document.createElement('span');
+                star.textContent = '☆';
+                star.style.cssText = 'font-size:28px;cursor:pointer;color:#bbb;-webkit-user-select:none;user-select:none;transition:color 0.12s,transform 0.1s;line-height:1;';
+                const v = i;
+                star.addEventListener('mouseover', () => renderStars(v));
+                star.addEventListener('mouseleave', () => renderStars(0));
+                const handleTap = (e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    if (_rateSubmitted) return;
+                    _rateSubmitted = true;
+                    sessionStorage.setItem('wol_rate_submitted', '1');
+                    renderStars(v);
+                    sendRating(v);
+                    setTimeout(() => {
+                        starsRow.style.display = 'none';
+                        const msg = document.createElement('div');
+                        msg.textContent = t('rateThankYouRating');
+                        msg.style.cssText = 'font-size:13px;color:#888;padding:2px 0 4px 0;text-align:center;animation:wol_rate_fadein 0.3s ease;';
+                        body.appendChild(msg);
+                    }, 1500);
+                };
+                star.addEventListener('click', handleTap);
+                star.addEventListener('touchend', handleTap, { passive: false });
+                starEls.push(star);
+                starsRow.appendChild(star);
+            }
+            body.appendChild(starsRow);
+        }
+
+        parent.appendChild(section);
+    }
+
     // ── Shared: builds the Feedback section (with Rate button) appended to any panel ──
     function buildFeedbackAndRateSections(panel) {
         // ── Divider ──
@@ -1015,18 +1097,11 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
             sendFeedback();
         }));
 
-        fbSection.appendChild(makeFbBtn(t('rateAppBtn'), () => {
-            showFeedbackModal({
-                title: t('rateModalTitle'),
-                hasInput: false,
-                onSubmit: (rating) => {
-                    localStorage.setItem('wol_user_rating', rating);
-                    sendRating(rating);
-                }
-            });
-        }));
-
         panel.appendChild(fbSection);
+
+        // ── Rate this app (inline stars) ──
+        const d2 = document.createElement('div'); d2.className = 'pp-divider'; panel.appendChild(d2);
+        buildInlineRating(panel);
     }
 
     // extraSectionsBuilder(panel) — optional callback to append extra sections
@@ -1260,17 +1335,11 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                             fbSec.appendChild(makeFbBtnInfo(t('sendFeedbackBtn'), () => {
                                 sendFeedback();
                             }));
-                            fbSec.appendChild(makeFbBtnInfo(t('rateAppBtn'), () => {
-                                showFeedbackModal({
-                                    title: t('rateModalTitle'),
-                                    hasInput: false,
-                                    onSubmit: (rating) => {
-                                        localStorage.setItem('wol_user_rating', rating);
-                                        sendRating(rating);
-                                    }
-                                });
-                            }));
                             panel.appendChild(fbSec);
+
+                            // ── Rate this app (inline stars) ──
+                            const d2 = document.createElement('div'); d2.className = 'pp-divider'; panel.appendChild(d2);
+                            buildInlineRating(panel);
 
                             // ── Wire ✕ to restore full study panel ──
                             function restoreFullStudyPanel(ev) {

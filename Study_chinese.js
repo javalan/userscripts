@@ -1024,7 +1024,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         if (_rateSubmitted) {
             const msg = document.createElement('div');
             msg.textContent = t('rateThankYouRating');
-            msg.style.cssText = 'font-size:13px;color:#f5a623;padding:2px 0 4px 0;text-align:center;';
+            msg.style.cssText = 'font-size:14px;font-weight:600;color:#f5a623;padding:2px 0 4px 0;text-align:center;';
             body.appendChild(msg);
         } else {
             const starsRow = document.createElement('div');
@@ -1056,7 +1056,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
                         starsRow.style.display = 'none';
                         const msg = document.createElement('div');
                         msg.textContent = t('rateThankYouRating');
-                        msg.style.cssText = 'font-size:13px;color:#888;padding:2px 0 4px 0;text-align:center;animation:wol_rate_fadein 0.3s ease;';
+                        msg.style.cssText = 'font-size:14px;font-weight:600;color:#f5a623;padding:2px 0 4px 0;text-align:center;animation:wol_rate_fadein 0.3s ease;';
                         body.appendChild(msg);
                     }, 1500);
                 };

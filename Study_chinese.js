@@ -1024,7 +1024,7 @@ body.wol-study-mode:not(.wol-player-visible) #playerwrapper {
         if (_rateSubmitted) {
             const msg = document.createElement('div');
             msg.textContent = t('rateThankYouRating');
-            msg.style.cssText = 'font-size:13px;color:#888;padding:2px 0 4px 0;text-align:center;';
+            msg.style.cssText = 'font-size:13px;color:#f5a623;padding:2px 0 4px 0;text-align:center;';
             body.appendChild(msg);
         } else {
             const starsRow = document.createElement('div');
